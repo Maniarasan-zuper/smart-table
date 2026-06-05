@@ -106,21 +106,59 @@ function compareValues(a, b, type) {
   return a.toString().localeCompare(b.toString(), undefined, { numeric: true });
 }
 
+// Range filters store two values joined by "|" (either side may be blank).
+function splitPair(s) {
+  const parts = String(s == null ? "" : s).split("|");
+  return [parts[0] || "", parts[1] || ""];
+}
+function joinPair(a, b) {
+  a = (a || "").trim();
+  b = (b || "").trim();
+  return a === "" && b === "" ? "" : a + "|" + b;
+}
+
+// Type-aware filter: does `raw` (a cell value) pass `fv` (the column's filter)?
+function matchesFilter(col, raw, fv) {
+  if (fv == null || fv === "") return true;
+  if (col.type === "checkbox") {
+    const checked = raw === true || raw === "true";
+    return fv === "true" ? checked : fv === "false" ? !checked : true;
+  }
+  if (col.type === "select" || col.type === "status") {
+    return (raw == null ? "" : String(raw)) === fv;
+  }
+  if (col.type === "number") {
+    const [minS, maxS] = splitPair(fv);
+    if (minS === "" && maxS === "") return true;
+    const n = parseFloat(raw);
+    if (isNaN(n)) return false;
+    if (minS !== "" && n < parseFloat(minS)) return false;
+    if (maxS !== "" && n > parseFloat(maxS)) return false;
+    return true;
+  }
+  if (col.type === "date") {
+    const [from, to] = splitPair(fv);
+    if (from === "" && to === "") return true;
+    // Stored as YYYY-MM-DD, which compares chronologically as strings.
+    const v = raw == null ? "" : String(raw);
+    if (!v) return false;
+    if (from && v < from) return false;
+    if (to && v > to) return false;
+    return true;
+  }
+  // text
+  return (raw == null ? "" : String(raw).toLowerCase()).includes(
+    String(fv).toLowerCase()
+  );
+}
+
 // Rows after applying filters and sort (does not mutate state.rows).
 function viewRows(state) {
   let rows = state.rows.slice();
-  const f = state.filters || {};
   rows = rows.filter((r) =>
-    state.columns.every((c) => {
-      const fv = (f[c.id] || "").toString().trim().toLowerCase();
-      if (!fv) return true;
-      const raw = r.cells[c.id];
-      if (c.type === "checkbox") {
-        const want = ["true", "yes", "1", "done", "checked"].includes(fv);
-        return (raw === true || raw === "true") === want;
-      }
-      return (raw == null ? "" : raw.toString().toLowerCase()).includes(fv);
-    })
+    state.columns.every((c) =>
+      matchesFilter(c, r.cells[c.id], state.filters[c.id])
+    )
   );
   if (state.sort) {
     const col = state.columns.find((c) => c.id === state.sort.col);
@@ -415,6 +453,66 @@ function renderTable(app, source, el, ctx) {
     menu.showAtMouseEvent(evt);
   }
 
+  function setFilter(col, value) {
+    if (value) state.filters[col.id] = value;
+    else delete state.filters[col.id];
+    commit();
+  }
+
+  function renderFilterControl(fth, col) {
+    const cur = state.filters[col.id] || "";
+    if (col.type === "checkbox") {
+      const sel = fth.createEl("select", { cls: "smart-table-filter-input" });
+      [
+        ["", "Any"],
+        ["true", "Checked"],
+        ["false", "Unchecked"],
+      ].forEach(([v, l]) => {
+        const o = sel.createEl("option", { text: l });
+        o.value = v;
+        if (v === cur) o.selected = true;
+      });
+      sel.onchange = () => setFilter(col, sel.value);
+    } else if (col.type === "select" || col.type === "status") {
+      const sel = fth.createEl("select", { cls: "smart-table-filter-input" });
+      const any = sel.createEl("option", { text: "Any" });
+      any.value = "";
+      if (!cur) any.selected = true;
+      (col.options || []).forEach((o) => {
+        const op = sel.createEl("option", { text: o.label });
+        op.value = o.label;
+        if (o.label === cur) op.selected = true;
+      });
+      sel.onchange = () => setFilter(col, sel.value);
+    } else if (col.type === "number" || col.type === "date") {
+      const [a, b] = splitPair(cur);
+      const inType = col.type === "number" ? "number" : "date";
+      const box = fth.createDiv({ cls: "smart-table-filter-pair" });
+      const lo = box.createEl("input", {
+        cls: "smart-table-filter-input",
+        attr: { type: inType, placeholder: col.type === "number" ? "Min" : "" },
+      });
+      const hi = box.createEl("input", {
+        cls: "smart-table-filter-input",
+        attr: { type: inType, placeholder: col.type === "number" ? "Max" : "" },
+      });
+      lo.value = a;
+      hi.value = b;
+      lo.setAttr("aria-label", col.type === "number" ? "Minimum" : "From");
+      hi.setAttr("aria-label", col.type === "number" ? "Maximum" : "To");
+      const upd = () => setFilter(col, joinPair(lo.value, hi.value));
+      lo.onchange = upd;
+      hi.onchange = upd;
+    } else {
+      const fi = fth.createEl("input", {
+        cls: "smart-table-filter-input",
+        attr: { type: "text", placeholder: "Filter…" },
+      });
+      fi.value = cur;
+      fi.onchange = () => setFilter(col, fi.value);
+    }
+  }
+
   function renderCell(td, col, row) {
     const val = row.cells[col.id];
     if (col.type === "checkbox") {
@@ -533,18 +631,9 @@ function renderTable(app, source, el, ctx) {
 
     if (state.showFilters) {
       const ftr = thead.createEl("tr", { cls: "smart-table-filter-row" });
-      state.columns.forEach((col) => {
-        const fth = ftr.createEl("th");
-        const fi = fth.createEl("input", {
-          cls: "smart-table-filter-input",
-          attr: { type: "text", placeholder: "Filter…" },
-        });
-        fi.value = state.filters[col.id] || "";
-        fi.onchange = () => {
-          state.filters[col.id] = fi.value;
-          commit();
-        };
-      });
+      state.columns.forEach((col) =>
+        renderFilterControl(ftr.createEl("th"), col)
+      );
       ftr.createEl("th");
     }
 
