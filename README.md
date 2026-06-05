@@ -5,6 +5,8 @@ status pills, with easy add/remove of columns and rows. The table is stored as
 a fenced `smart-table` code block (JSON), so all your edits are saved right in
 the note and sync like any other text.
 
+![Smart Table demo](https://raw.githubusercontent.com/Maniarasan-zuper/smart-table/main/demo.gif)
+
 ## Usage
 
 Run the command **Smart Table: Insert table** (Command palette, <kbd>Cmd/Ctrl</kbd>+<kbd>P</kbd>)
@@ -18,6 +20,8 @@ in Reading view and Live Preview.
 - **Add / remove rows** — **+ Row** in the toolbar; hover a row and click ✕.
 - **Column types** — Text, Number, Date, Checkbox, Select, and **Status**
   (colored pills; add your own options on the fly).
+- **Export CSV** — the toolbar **Export CSV** button downloads the table as
+  currently sorted and filtered (RFC 4180 quoting, UTF-8 BOM for Excel).
 
 ## How data is stored
 

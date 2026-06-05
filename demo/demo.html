@@ -1,0 +1,232 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --text: rgb(55, 53, 47);
+        --muted: #8a8780;
+        --faint: #b4b1aa;
+        --border: #e6e4df;
+        --secondary: #faf9f7;
+        --accent: #4a7dff;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        width: 820px;
+        height: 560px;
+        background: #f3f2ef;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        display: flex;
+        justify-content: center;
+      }
+      .window {
+        width: 760px;
+        margin-top: 24px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        align-self: flex-start;
+      }
+      .titlebar {
+        height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--border);
+        background: var(--secondary);
+      }
+      .dot { width: 11px; height: 11px; border-radius: 50%; }
+      .r { background: #ff5f57; } .y { background: #febc2e; } .g { background: #28c840; }
+      .tab { margin-left: 14px; font-size: 12px; color: var(--muted); }
+      .doc { padding: 22px 26px 26px; position: relative; min-height: 460px; }
+      h1.note-title { font-size: 24px; font-weight: 700; margin: 0 0 16px; }
+
+      /* Toolbar */
+      .toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+      .btn {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 3px 9px; font-size: 12px;
+        border: 1px solid var(--border); border-radius: 6px;
+        background: var(--bg); color: var(--muted);
+      }
+      .btn.active { color: var(--accent); border-color: var(--accent); }
+      .btn.glow { box-shadow: 0 0 0 3px rgba(74, 125, 255, 0.25); color: var(--accent); border-color: var(--accent); }
+      .count { margin-left: auto; font-size: 12px; color: var(--faint); }
+
+      /* Grid */
+      .wrap { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+      table.grid { border-collapse: collapse; width: 100%; font-size: 13px; }
+      .grid th, .grid td {
+        border-right: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+      }
+      .grid tr td:last-child, .grid tr th:last-child { border-right: none; }
+      .grid tbody tr:last-child td { border-bottom: none; }
+      .grid thead th { background: var(--secondary); }
+      .th-inner { display: flex; align-items: center; gap: 6px; padding: 6px 9px; }
+      .th-ico { color: var(--faint); font-size: 12px; width: 14px; text-align: center; }
+      .th-name { flex: 1; font-weight: 600; }
+      .sort { color: var(--accent); font-weight: 700; }
+      .th-menu { color: var(--faint); }
+      .cell { padding: 7px 9px; }
+      .filter-row th { padding: 0; }
+      .filter-input {
+        width: 100%; border: none; background: transparent;
+        padding: 5px 9px; font-size: 12px; color: var(--text);
+        font-family: inherit;
+      }
+      .filter-input::placeholder { color: var(--faint); }
+      .filter-row th.filled .filter-input { color: var(--text); }
+
+      .pill {
+        display: inline-block; padding: 2px 10px; border-radius: 999px;
+        font-size: 11px; font-weight: 500;
+      }
+
+      .toast {
+        position: absolute; right: 26px; bottom: 18px;
+        background: #2b2a27; color: #fff; font-size: 12px;
+        padding: 7px 13px; border-radius: 8px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.25);
+        display: flex; align-items: center; gap: 7px;
+      }
+      .toast .tick { color: #6ee7a0; font-weight: 700; }
+    </style>
+  </head>
+  <body>
+    <div class="window">
+      <div class="titlebar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="tab">Project tracker.md</span>
+      </div>
+      <div class="doc">
+        <h1 class="note-title">Project tracker</h1>
+        <div id="tbl"></div>
+        <div id="toast"></div>
+      </div>
+    </div>
+
+    <script>
+      const COLS = [
+        { name: "Name", type: "text", ico: "T" },
+        { name: "Status", type: "status", ico: "◉" },
+        { name: "Due", type: "date", ico: "▦" },
+      ];
+      const ROWS = [
+        { Name: "Draft proposal", Status: "Done", Due: "2026-06-02" },
+        { Name: "Review designs", Status: "In progress", Due: "2026-06-08" },
+        { Name: "Ship release", Status: "Todo", Due: "2026-06-12" },
+        { Name: "Fix login bug", Status: "Done", Due: "2026-06-04" },
+        { Name: "Plan Q3 roadmap", Status: "Todo", Due: "2026-06-20" },
+      ];
+      const PILL = {
+        Todo: ["#e6e4df", "#4a4843"],
+        "In progress": ["#d6e6ff", "#1f4b99"],
+        Done: ["#cdefd3", "#1f7a3d"],
+      };
+
+      const tbl = document.getElementById("tbl");
+      const toastEl = document.getElementById("toast");
+
+      function viewRows(opts) {
+        let rows = ROWS.slice();
+        if (opts.filter) {
+          const f = opts.filter.toLowerCase();
+          rows = rows.filter((r) => r.Status.toLowerCase().includes(f));
+        }
+        if (opts.sort) {
+          rows.sort((a, b) => a.Status.localeCompare(b.Status));
+        }
+        return rows;
+      }
+
+      function render(opts) {
+        opts = opts || {};
+        const rows = viewRows(opts);
+        tbl.innerHTML = "";
+
+        // Toolbar
+        const bar = document.createElement("div");
+        bar.className = "toolbar";
+        bar.innerHTML =
+          '<span class="btn">+ Row</span>' +
+          '<span class="btn">+ Column</span>' +
+          '<span class="btn' + (opts.showFilters ? " active" : "") + '">⛃ Filter</span>' +
+          '<span class="btn' + (opts.glow ? " glow" : "") + '">⭳ Export CSV</span>' +
+          '<span class="count">' + rows.length + " of " + ROWS.length + "</span>";
+        tbl.appendChild(bar);
+
+        // Grid
+        const wrap = document.createElement("div");
+        wrap.className = "wrap";
+        let html = '<table class="grid"><thead><tr>';
+        COLS.forEach((c) => {
+          const sorted = opts.sort && c.name === "Status";
+          html +=
+            '<th><div class="th-inner"><span class="th-ico">' + c.ico +
+            '</span><span class="th-name">' + c.name + "</span>" +
+            (sorted ? '<span class="sort">↑</span>' : "") +
+            '<span class="th-menu">⌄</span></div></th>';
+        });
+        html += "</tr>";
+        if (opts.showFilters) {
+          html += '<tr class="filter-row">';
+          COLS.forEach((c) => {
+            const val = c.name === "Status" ? opts.filter || "" : "";
+            html +=
+              "<th" + (val ? ' class="filled"' : "") +
+              '><input class="filter-input" placeholder="Filter…" value="' +
+              val + '"/></th>';
+          });
+          html += "</tr>";
+        }
+        html += "</thead><tbody>";
+        rows.forEach((r) => {
+          const p = PILL[r.Status];
+          html +=
+            "<tr>" +
+            '<td class="cell">' + r.Name + "</td>" +
+            '<td class="cell"><span class="pill" style="background:' + p[0] +
+            ";color:" + p[1] + '">' + r.Status + "</span></td>" +
+            '<td class="cell">' + r.Due + "</td>" +
+            "</tr>";
+        });
+        html += "</tbody></table>";
+        wrap.innerHTML = html;
+        tbl.appendChild(wrap);
+
+        toastEl.innerHTML = opts.toast
+          ? '<div class="toast"><span class="tick">✓</span>' + opts.toast + "</div>"
+          : "";
+      }
+
+      window.renderState = function (state) {
+        const map = {
+          idle: {},
+          sort: { sort: true },
+          filterOpen: { sort: true, showFilters: true },
+          filtered: { sort: true, showFilters: true, filter: "done" },
+          csv: {
+            sort: true,
+            showFilters: true,
+            filter: "done",
+            glow: true,
+            toast: "Saved smart-table.csv",
+          },
+        };
+        render(map[state] || {});
+      };
+
+      window.renderState("idle");
+    </script>
+  </body>
+</html>
