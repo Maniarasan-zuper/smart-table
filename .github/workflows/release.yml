@@ -1,0 +1,39 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+permissions:
+  contents: write # create the GitHub release
+  id-token: write # required for attestation signing
+  attestations: write # publish artifact attestations
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Smart Table ships plain JS, so there is nothing to compile — the files
+      # in the repo are the release assets. Attest their provenance so users
+      # can cryptographically verify they were produced by this workflow.
+      - name: Generate artifact attestations
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+            styles.css
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          gh release create "$tag" \
+            main.js manifest.json styles.css \
+            --title "$tag" \
+            --notes "Smart Table $tag — interactive tables with typed columns, sort, filter, status, and CSV export."

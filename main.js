@@ -179,6 +179,42 @@ async function persist(app, ctx, el, state) {
 }
 
 // ---------------------------------------------------------------------------
+// Export the table (as currently sorted/filtered) to a downloaded CSV file.
+// ---------------------------------------------------------------------------
+
+function exportTableCSV(state) {
+  // RFC 4180 quoting: wrap fields containing quotes, commas, or newlines.
+  const esc = (v) => {
+    const s = v == null ? "" : String(v);
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [state.columns.map((c) => esc(c.name)).join(",")];
+  viewRows(state).forEach((row) => {
+    lines.push(
+      state.columns
+        .map((c) => {
+          const v = row.cells[c.id];
+          if (c.type === "checkbox") return esc(v === true || v === "true");
+          return esc(v);
+        })
+        .join(",")
+    );
+  });
+  // Prepend a BOM so Excel reads UTF-8 correctly.
+  const blob = new Blob(["﻿" + lines.join("\r\n")], {
+    type: "text/csv;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "smart-table.csv";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
 // A tiny text-prompt modal (rename column, new option).
 // ---------------------------------------------------------------------------
 
@@ -448,6 +484,12 @@ function renderTable(app, source, el, ctx) {
       state.showFilters = !state.showFilters;
       commit();
     };
+
+    const csvBtn = bar.createEl("button", { cls: "smart-table-btn" });
+    setIcon(csvBtn.createSpan(), "download");
+    csvBtn.createSpan({ text: "Export CSV" });
+    csvBtn.setAttr("aria-label", "Export this table to CSV");
+    csvBtn.onclick = () => exportTableCSV(state);
 
     const shown = viewRows(state);
     bar.createDiv({
