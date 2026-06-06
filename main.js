@@ -203,9 +203,43 @@ async function persist(app, ctx, el, state) {
   if (!file) return;
   const block =
     "```smart-table\n" + JSON.stringify(state, null, 2) + "\n```";
+  // `info.lineEnd` from getSectionInfo() can be stale in Live Preview (the
+  // widget is reused, not re-rendered, after we edit the file). Trusting it
+  // would splice the wrong range once the block grows/shrinks and corrupt the
+  // note. So we locate the block's fences fresh at write time.
   const apply = (data) => {
     const lines = data.split("\n");
-    lines.splice(info.lineStart, info.lineEnd - info.lineStart + 1, block);
+    const isOpen = (i) => /^```+\s*smart-table\s*$/.test(lines[i] || "");
+    const isFence = (i) => /^```+\s*$/.test(lines[i] || "");
+
+    let start = info.lineStart;
+    if (!isOpen(start)) {
+      // Realign to the smart-table opening fence nearest the cached position.
+      let best = -1;
+      let bestDist = Infinity;
+      for (let i = 0; i < lines.length; i++) {
+        if (isOpen(i)) {
+          const d = Math.abs(i - info.lineStart);
+          if (d < bestDist) {
+            bestDist = d;
+            best = i;
+          }
+        }
+      }
+      if (best === -1) return data; // can't locate the block — leave file as-is
+      start = best;
+    }
+
+    let end = -1;
+    for (let i = start + 1; i < lines.length; i++) {
+      if (isFence(i)) {
+        end = i;
+        break;
+      }
+    }
+    if (end === -1) return data; // no closing fence — abort rather than corrupt
+
+    lines.splice(start, end - start + 1, block);
     return lines.join("\n");
   };
   if (app.vault.process) {
