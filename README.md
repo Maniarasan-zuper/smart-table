@@ -17,11 +17,20 @@ in Reading view and Live Preview.
 - **Filter** — click **Filter** in the toolbar to show a per-column filter row.
 - **Add / remove columns** — **+ Column** in the toolbar (pick a type), or a
   column's ▾ menu → Delete column. Rename inline in the header.
-- **Add / remove rows** — **+ Row** in the toolbar; hover a row and click ✕.
+- **Add / remove rows** — **+ Row** in the toolbar or the **+ New row** strip at
+  the bottom of the grid (no scrolling back up); hover a row and click ✕.
 - **Column types** — Text, Number, Date, Checkbox, Select, and **Status**
   (colored pills; add your own options on the fly).
 - **Export CSV** — the toolbar **Export CSV** button downloads the table as
   currently sorted and filtered (RFC 4180 quoting, UTF-8 BOM for Excel).
+
+### Convert an existing Markdown table
+
+Already have a plain pipe table? Select it (or just place the cursor inside it)
+and either right-click → **Convert to Smart Table**, or run the command
+**Smart Table: Convert Markdown table to Smart Table**. The table is replaced
+in place, and column types are inferred from the data — numbers become Number,
+`YYYY-MM-DD` values become Date, and `[x]` / `true` / `yes` become Checkbox.
 
 ## How data is stored
 

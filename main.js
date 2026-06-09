@@ -1,6 +1,6 @@
 "use strict";
 
-const { Plugin, Menu, Modal, setIcon } = require("obsidian");
+const { Plugin, Menu, Modal, Notice, setIcon } = require("obsidian");
 
 // ---------------------------------------------------------------------------
 // Data model helpers
@@ -287,6 +287,127 @@ function exportTableCSV(state) {
 }
 
 // ---------------------------------------------------------------------------
+// Convert a plain Markdown table (pipe syntax) into a Smart Table state.
+// ---------------------------------------------------------------------------
+
+// Split a pipe-delimited row into trimmed cells, honouring escaped pipes (\|)
+// and dropping the empty cells produced by leading / trailing border pipes.
+function splitTableRow(line) {
+  const cells = [];
+  let cur = "";
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === "\\" && line[i + 1] === "|") {
+      cur += "|";
+      i++;
+    } else if (ch === "|") {
+      cells.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  cells.push(cur);
+  if (cells.length && cells[0].trim() === "") cells.shift();
+  if (cells.length && cells[cells.length - 1].trim() === "") cells.pop();
+  return cells.map((c) => c.trim());
+}
+
+// True for a Markdown delimiter row like `| --- | :--: |`.
+function isDelimiterRow(line) {
+  const cells = splitTableRow(line);
+  return (
+    cells.length > 0 && cells.every((c) => /^:?-{1,}:?$/.test(c.replace(/\s/g, "")))
+  );
+}
+
+// Guess a column type from its body values, so a converted table keeps using
+// Smart Table's typed inputs where it can. Falls back to plain text.
+function inferColumnType(values) {
+  const nonEmpty = values.filter((v) => v !== "");
+  if (!nonEmpty.length) return "text";
+  const isBool = (v) => /^(\[[ xX]?\]|true|false|yes|no)$/i.test(v.trim());
+  if (nonEmpty.every(isBool)) return "checkbox";
+  if (nonEmpty.every((v) => /^-?\d+(\.\d+)?$/.test(v.trim()))) return "number";
+  if (nonEmpty.every((v) => /^\d{4}-\d{2}-\d{2}$/.test(v.trim()))) return "date";
+  return "text";
+}
+
+function toBool(v) {
+  return /^(\[[xX]\]|true|yes)$/i.test(String(v).trim());
+}
+
+// Parse Markdown table text into a Smart Table state, or null if it isn't a
+// recognisable table (needs a header row + a delimiter row).
+function parseMarkdownTable(text) {
+  const lines = (text || "")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l !== "");
+  if (lines.length < 2 || !lines.every((l) => l.includes("|"))) return null;
+  if (!isDelimiterRow(lines[1])) return null;
+
+  const headers = splitTableRow(lines[0]);
+  if (!headers.length) return null;
+  const bodyRows = lines.slice(2).map(splitTableRow);
+
+  const columns = headers.map((h, i) => {
+    const colValues = bodyRows.map((r) => (r[i] == null ? "" : r[i]));
+    const type = inferColumnType(colValues);
+    return { id: uid("c"), name: h || "Column " + (i + 1), type };
+  });
+  const rows = bodyRows.map((r) => {
+    const cells = {};
+    columns.forEach((col, i) => {
+      const raw = r[i] == null ? "" : r[i];
+      cells[col.id] = col.type === "checkbox" ? toBool(raw) : raw;
+    });
+    return { id: uid("r"), cells };
+  });
+  return { columns, rows, sort: null, filters: {}, showFilters: false };
+}
+
+// Find the Markdown table to convert: the selection if one is highlighted,
+// otherwise the run of pipe rows surrounding the cursor. Returns the source
+// text plus the document range it occupies, or null if none is found.
+function findTableRange(editor) {
+  const sel = editor.getSelection();
+  if (sel && sel.trim()) {
+    return {
+      from: editor.getCursor("from"),
+      to: editor.getCursor("to"),
+      text: sel,
+    };
+  }
+  const cur = editor.getCursor();
+  const isRow = (n) => {
+    const l = editor.getLine(n);
+    return l != null && l.trim() !== "" && l.includes("|");
+  };
+  if (!isRow(cur.line)) return null;
+  let start = cur.line;
+  while (start > 0 && isRow(start - 1)) start--;
+  let end = cur.line;
+  const last = editor.lineCount() - 1;
+  while (end < last && isRow(end + 1)) end++;
+  const from = { line: start, ch: 0 };
+  const to = { line: end, ch: editor.getLine(end).length };
+  return { from, to, text: editor.getRange(from, to) };
+}
+
+// Replace `range` in the editor with a smart-table block built from `state`.
+function convertTableRange(editor, range) {
+  const state = parseMarkdownTable(range.text);
+  if (!state) {
+    new Notice("Smart Table: no Markdown table found to convert.");
+    return false;
+  }
+  const block = "```smart-table\n" + JSON.stringify(state, null, 2) + "\n```";
+  editor.replaceRange(block, range.from, range.to);
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // A tiny text-prompt modal (rename column, new option).
 // ---------------------------------------------------------------------------
 
@@ -359,6 +480,17 @@ function renderTable(app, source, el, ctx) {
   const commit = () => {
     build();
     persist(app, ctx, el, state);
+  };
+
+  // Append a blank row and persist. Shared by the toolbar button and the
+  // "+ New row" footer at the bottom of the grid.
+  const appendRow = () => {
+    const row = { id: uid("r"), cells: {} };
+    state.columns.forEach(
+      (c) => (row.cells[c.id] = c.type === "checkbox" ? false : "")
+    );
+    state.rows.push(row);
+    commit();
   };
 
   function openTypeMenu(evt, cb) {
@@ -592,12 +724,7 @@ function renderTable(app, source, el, ctx) {
     const addRow = bar.createEl("button", { cls: "smart-table-btn" });
     setIcon(addRow.createSpan(), "plus");
     addRow.createSpan({ text: "Row" });
-    addRow.onclick = () => {
-      const row = { id: uid("r"), cells: {} };
-      state.columns.forEach((c) => (row.cells[c.id] = c.type === "checkbox" ? false : ""));
-      state.rows.push(row);
-      commit();
-    };
+    addRow.onclick = appendRow;
 
     const addCol = bar.createEl("button", { cls: "smart-table-btn" });
     setIcon(addCol.createSpan(), "plus");
@@ -695,6 +822,18 @@ function renderTable(app, source, el, ctx) {
         commit();
       };
     });
+
+    // Footer "+ New row" — add rows without scrolling back up to the toolbar.
+    const addTr = tbody.createEl("tr", { cls: "smart-table-addrow" });
+    const addTd = addTr.createEl("td", {
+      cls: "smart-table-addrow-cell",
+      attr: { colspan: String(state.columns.length + 1) },
+    });
+    const addInner = addTd.createDiv({ cls: "smart-table-addrow-inner" });
+    setIcon(addInner.createSpan({ cls: "smart-table-addrow-ico" }), "plus");
+    addInner.createSpan({ text: "New row" });
+    addTd.setAttr("aria-label", "Add a row");
+    addTd.onclick = appendRow;
   }
 
   build();
@@ -724,5 +863,36 @@ module.exports = class SmartTablePlugin extends Plugin {
         editor.setCursor({ line: cur.line + added, ch: 0 });
       },
     });
+
+    // Convert a plain Markdown table (selected, or under the cursor) in place.
+    this.addCommand({
+      id: "convert-md-table",
+      name: "Convert Markdown table to Smart Table",
+      editorCallback: (editor) => {
+        const range = findTableRange(editor);
+        if (!range) {
+          new Notice(
+            "Smart Table: select a Markdown table or place the cursor in one first."
+          );
+          return;
+        }
+        convertTableRange(editor, range);
+      },
+    });
+
+    // Same conversion as a right-click menu item, shown only when the editor
+    // selection or cursor is actually sitting on a Markdown table.
+    this.registerEvent(
+      this.app.workspace.on("editor-menu", (menu, editor) => {
+        const range = findTableRange(editor);
+        if (!range || !parseMarkdownTable(range.text)) return;
+        menu.addItem((item) =>
+          item
+            .setTitle("Convert to Smart Table")
+            .setIcon("table")
+            .onClick(() => convertTableRange(editor, range))
+        );
+      })
+    );
   }
 };

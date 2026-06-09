@@ -210,6 +210,31 @@ select.smart-table-filter-input {
   color: var(--text-faint);
 }
 
+/* Footer "+ New row" */
+.smart-table-addrow-cell {
+  cursor: pointer;
+  color: var(--text-faint);
+  background: var(--background-primary);
+}
+.smart-table-addrow-cell:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.smart-table-addrow-inner {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  font-size: var(--font-ui-smaller);
+}
+.smart-table-addrow-ico {
+  display: inline-flex;
+}
+.smart-table-addrow-ico .svg-icon {
+  width: 14px;
+  height: 14px;
+}
+
 .smart-table-td-del {
   width: 34px;
   text-align: center;
