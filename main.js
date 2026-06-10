@@ -798,17 +798,38 @@ function renderTable(app, source, el, ctx) {
       ftr.createEl("th");
     }
 
+    // One trailing column holds the delete handle.
+    const fullSpan = String(state.columns.length + 1);
+
+    const deleteRow = (row) => {
+      state.rows = state.rows.filter((r) => r.id !== row.id);
+      commit();
+    };
+
     const tbody = table.createEl("tbody");
     if (!shown.length) {
       const tr = tbody.createEl("tr");
       const td = tr.createEl("td", {
         cls: "smart-table-empty",
-        attr: { colspan: String(state.columns.length + 1) },
+        attr: { colspan: fullSpan },
       });
       td.setText(state.rows.length ? "No rows match the filters." : "No rows yet.");
     }
     shown.forEach((row) => {
       const tr = tbody.createEl("tr");
+      // Right-click anywhere on the row to delete it — reachable without
+      // scrolling to the row's ✕ when the table has many columns.
+      tr.oncontextmenu = (e) => {
+        e.preventDefault();
+        const menu = new Menu();
+        menu.addItem((i) =>
+          i
+            .setTitle("Delete row")
+            .setIcon("trash")
+            .onClick(() => deleteRow(row))
+        );
+        menu.showAtMouseEvent(e);
+      };
       state.columns.forEach((col) => {
         const td = tr.createEl("td", { cls: "smart-table-td" });
         renderCell(td, col, row);
@@ -817,17 +838,14 @@ function renderTable(app, source, el, ctx) {
       const del = tdDel.createSpan({ cls: "smart-table-row-del" });
       setIcon(del, "x");
       del.setAttr("aria-label", "Delete row");
-      del.onclick = () => {
-        state.rows = state.rows.filter((r) => r.id !== row.id);
-        commit();
-      };
+      del.onclick = () => deleteRow(row);
     });
 
     // Footer "+ New row" — add rows without scrolling back up to the toolbar.
     const addTr = tbody.createEl("tr", { cls: "smart-table-addrow" });
     const addTd = addTr.createEl("td", {
       cls: "smart-table-addrow-cell",
-      attr: { colspan: String(state.columns.length + 1) },
+      attr: { colspan: fullSpan },
     });
     const addInner = addTd.createDiv({ cls: "smart-table-addrow-inner" });
     setIcon(addInner.createSpan({ cls: "smart-table-addrow-ico" }), "plus");

@@ -18,7 +18,8 @@ in Reading view and Live Preview.
 - **Add / remove columns** — **+ Column** in the toolbar (pick a type), or a
   column's ▾ menu → Delete column. Rename inline in the header.
 - **Add / remove rows** — **+ Row** in the toolbar or the **+ New row** strip at
-  the bottom of the grid (no scrolling back up); hover a row and click ✕.
+  the bottom of the grid (no scrolling back up); delete a row by hovering it and
+  clicking ✕, or right-click anywhere on the row → **Delete row**.
 - **Column types** — Text, Number, Date, Checkbox, Select, and **Status**
   (colored pills; add your own options on the fly).
 - **Export CSV** — the toolbar **Export CSV** button downloads the table as
