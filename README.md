@@ -20,6 +20,8 @@ in Reading view and Live Preview.
 - **Add / remove rows** — **+ Row** in the toolbar or the **+ New row** strip at
   the bottom of the grid (no scrolling back up); delete a row by hovering it and
   clicking ✕, or right-click anywhere on the row → **Delete row**.
+- **Safe deletes** — deleting a column always asks for confirmation, and so does
+  deleting a row that has data; blank rows are removed instantly.
 - **Column types** — Text, Number, Date, Checkbox, Select, and **Status**
   (colored pills; add your own options on the fly).
 - **Export CSV** — the toolbar **Export CSV** button downloads the table as

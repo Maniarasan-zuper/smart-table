@@ -1,7 +1,7 @@
 {
   "id": "smart-table",
   "name": "Smart Table",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "minAppVersion": "1.0.0",
   "description": "Interactive tables in your notes: typed columns, sorting, filtering, status pills, and add or remove columns and rows.",
   "author": "maniarasan.s",

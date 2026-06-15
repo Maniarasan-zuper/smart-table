@@ -256,11 +256,16 @@ select.smart-table-filter-input {
   height: 14px;
 }
 
-/* Prompt modal */
+/* Prompt & confirm modal */
 .smart-table-modal-input {
   width: 100%;
   margin: 10px 0;
   padding: 7px 10px;
+}
+.smart-table-modal p {
+  margin: 8px 0 14px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
 }
 .smart-table-modal-row {
   display: flex;

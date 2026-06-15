@@ -456,6 +456,47 @@ function promptText(app, title, initial, cb) {
   new PromptModal(app, title, initial, cb).open();
 }
 
+// A confirm/cancel modal for destructive actions (delete column / row). Runs
+// `onConfirm` only if the user accepts; Enter confirms, Escape/Cancel dismisses.
+class ConfirmModal extends Modal {
+  constructor(app, title, message, confirmText, onConfirm) {
+    super(app);
+    this._title = title;
+    this._message = message;
+    this._confirmText = confirmText || "Delete";
+    this._onConfirm = onConfirm;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.addClass("smart-table-modal");
+    contentEl.createEl("h3", { text: this._title });
+    if (this._message) contentEl.createEl("p", { text: this._message });
+    const confirm = () => {
+      this.close();
+      this._onConfirm();
+    };
+    this.scope.register([], "Enter", (e) => {
+      e.preventDefault();
+      confirm();
+    });
+    const row = contentEl.createDiv({ cls: "smart-table-modal-row" });
+    const ok = row.createEl("button", {
+      cls: "mod-warning",
+      text: this._confirmText,
+    });
+    ok.onclick = confirm;
+    const cancel = row.createEl("button", { text: "Cancel" });
+    cancel.onclick = () => this.close();
+    window.setTimeout(() => ok.focus(), 0);
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+function confirmAction(app, title, message, confirmText, onConfirm) {
+  new ConfirmModal(app, title, message, confirmText, onConfirm).open();
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -569,11 +610,27 @@ function renderTable(app, source, el, ctx) {
         .setIcon("trash")
         .onClick(() => {
           if (state.columns.length <= 1) return;
-          state.columns = state.columns.filter((c) => c.id !== col.id);
-          state.rows.forEach((r) => delete r.cells[col.id]);
-          if (state.sort && state.sort.col === col.id) state.sort = null;
-          delete state.filters[col.id];
-          commit();
+          // Always confirm — deleting a column discards that field's data in
+          // every row.
+          confirmAction(
+            app,
+            "Delete column?",
+            'This deletes the "' +
+              (col.name || "Untitled") +
+              '" column and its values in all ' +
+              state.rows.length +
+              " row" +
+              (state.rows.length === 1 ? "" : "s") +
+              ". This can't be undone.",
+            "Delete column",
+            () => {
+              state.columns = state.columns.filter((c) => c.id !== col.id);
+              state.rows.forEach((r) => delete r.cells[col.id]);
+              if (state.sort && state.sort.col === col.id) state.sort = null;
+              delete state.filters[col.id];
+              commit();
+            }
+          );
         })
     );
     menu.showAtMouseEvent(evt);
@@ -801,9 +858,29 @@ function renderTable(app, source, el, ctx) {
     // One trailing column holds the delete handle.
     const fullSpan = String(state.columns.length + 1);
 
-    const deleteRow = (row) => {
+    const removeRow = (row) => {
       state.rows = state.rows.filter((r) => r.id !== row.id);
       commit();
+    };
+    // A row is "empty" when every cell is blank / unchecked — those delete
+    // instantly. Rows with any content ask for confirmation first.
+    const rowHasData = (row) =>
+      state.columns.some((c) => {
+        const v = row.cells[c.id];
+        return c.type === "checkbox" ? v === true || v === "true" : v != null && v !== "";
+      });
+    const deleteRow = (row) => {
+      if (!rowHasData(row)) {
+        removeRow(row);
+        return;
+      }
+      confirmAction(
+        app,
+        "Delete row?",
+        "This row has data. Deleting it can't be undone.",
+        "Delete row",
+        () => removeRow(row)
+      );
     };
 
     const tbody = table.createEl("tbody");
