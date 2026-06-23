@@ -22,6 +22,10 @@ in Reading view and Live Preview.
   clicking ✕, or right-click anywhere on the row → **Delete row**.
 - **Safe deletes** — deleting a column always asks for confirmation, and so does
   deleting a row that has data; blank rows are removed instantly.
+- **Resize columns** — drag a column header's right edge; the width is saved
+  with the table.
+- **Wrapping text** — text columns wrap long content onto multiple lines and
+  grow the row to fit.
 - **Column types** — Text, Number, Date, Checkbox, Select, and **Status**
   (colored pills; add your own options on the fly).
 - **Export CSV** — the toolbar **Export CSV** button downloads the table as

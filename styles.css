@@ -58,7 +58,7 @@
 }
 .smart-table-grid {
   border-collapse: collapse;
-  width: 100%;
+  table-layout: fixed;
   font-size: var(--font-ui-small);
 }
 .smart-table-grid th,
@@ -81,11 +81,35 @@
 }
 
 /* Header cells */
+.smart-table-th {
+  position: relative;
+}
 .smart-table-th-inner {
   display: flex;
   align-items: center;
   gap: 5px;
   padding: 5px 8px;
+  overflow: hidden;
+}
+/* Drag handle straddling the column's right border. */
+.smart-table-col-resize {
+  position: absolute;
+  top: 0;
+  right: -3px;
+  width: 7px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 3;
+  user-select: none;
+}
+.smart-table-col-resize:hover {
+  background: var(--text-accent);
+  opacity: 0.5;
+}
+/* While dragging, keep the resize cursor everywhere and prevent text selection. */
+body.smart-table-resizing {
+  cursor: col-resize !important;
+  user-select: none !important;
 }
 .smart-table-th-ico {
   display: inline-flex;
@@ -97,7 +121,7 @@
 }
 .smart-table-th-name {
   flex: 1;
-  min-width: 60px;
+  min-width: 0;
   border: none;
   background: transparent;
   font-weight: 600;
@@ -178,11 +202,22 @@ select.smart-table-filter-input {
   padding: 6px 8px;
   font-size: var(--font-ui-small);
   color: var(--text-normal);
+  box-sizing: border-box;
 }
 .smart-table-cell-input:focus {
   outline: none;
   box-shadow: inset 0 0 0 2px var(--text-accent);
   border-radius: 4px;
+}
+/* Text cells: auto-growing textarea that wraps long content. */
+.smart-table-cell-text {
+  display: block;
+  resize: none;
+  overflow: hidden;
+  font-family: inherit;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .smart-table-td input[type="checkbox"] {
   margin: 6px 8px;

@@ -29,6 +29,26 @@ const TYPE_LABELS = {
   status: "Status",
 };
 
+// Column sizing. Widths are stored per column (in px) once a user drags to
+// resize; until then each type falls back to a sensible default. The grid uses
+// table-layout: fixed so these widths are authoritative and text can wrap.
+const DEFAULT_COL_WIDTHS = {
+  checkbox: 90,
+  date: 140,
+  number: 110,
+  status: 150,
+  select: 150,
+  text: 220,
+};
+const FALLBACK_COL_WIDTH = 180;
+const MIN_COL_WIDTH = 60;
+const TRAILING_COL_WIDTH = 34; // the add-column / delete-row gutter
+
+function columnWidth(col) {
+  const w = typeof col.width === "number" ? col.width : DEFAULT_COL_WIDTHS[col.type];
+  return Math.max(MIN_COL_WIDTH, w || FALLBACK_COL_WIDTH);
+}
+
 function typeIcon(t) {
   return (
     {
@@ -758,17 +778,35 @@ function renderTable(app, source, el, ctx) {
         pill.setText("Empty");
       }
       pill.onclick = (e) => openSelectMenu(e, col, row);
-    } else {
-      const type = col.type === "number" ? "number" : col.type === "date" ? "date" : "text";
+    } else if (col.type === "number" || col.type === "date") {
       const inp = td.createEl("input", {
         cls: "smart-table-cell-input",
-        attr: { type },
+        attr: { type: col.type },
       });
       inp.value = val == null ? "" : val;
       inp.onchange = () => {
         row.cells[col.id] = inp.value;
         commit();
       };
+    } else {
+      // Text uses an auto-growing textarea so long content wraps onto new
+      // lines instead of being clipped to a single line.
+      const ta = td.createEl("textarea", {
+        cls: "smart-table-cell-input smart-table-cell-text",
+      });
+      ta.rows = 1;
+      ta.value = val == null ? "" : val;
+      const autosize = () => {
+        ta.style.height = "auto";
+        ta.style.height = ta.scrollHeight + "px";
+      };
+      ta.addEventListener("input", autosize);
+      ta.onchange = () => {
+        row.cells[col.id] = ta.value;
+        commit();
+      };
+      // Size to existing content once the cell is in the DOM.
+      window.setTimeout(autosize, 0);
     }
   }
 
@@ -817,9 +855,54 @@ function renderTable(app, source, el, ctx) {
     const wrap = el.createDiv({ cls: "smart-table-wrap" });
     const table = wrap.createEl("table", { cls: "smart-table-grid" });
 
+    // Fixed layout driven by an explicit colgroup: column widths are honoured
+    // exactly (so they can be dragged) and the overall table width is the sum,
+    // letting the wrapper scroll horizontally when needed.
+    const sumWidth = () =>
+      state.columns.reduce((s, c) => s + columnWidth(c), 0) + TRAILING_COL_WIDTH;
+    table.style.width = sumWidth() + "px";
+    const colgroup = table.createEl("colgroup");
+    const colEls = state.columns.map((col) => {
+      const cl = colgroup.createEl("col");
+      cl.style.width = columnWidth(col) + "px";
+      return cl;
+    });
+    colgroup.createEl("col").style.width = TRAILING_COL_WIDTH + "px";
+
+    // Drag a column's right-edge handle to resize it; the new width is stored
+    // on the column (and persisted) when the drag ends.
+    const startResize = (evt, col, index) => {
+      evt.preventDefault();
+      evt.stopPropagation();
+      const startX = evt.clientX;
+      const startW = columnWidth(col);
+      let width = startW;
+      document.body.classList.add("smart-table-resizing");
+      const onMove = (e) => {
+        width = Math.max(MIN_COL_WIDTH, Math.round(startW + (e.clientX - startX)));
+        colEls[index].style.width = width + "px";
+        table.style.width =
+          state.columns.reduce(
+            (s, c, i) => s + (i === index ? width : columnWidth(c)),
+            0
+          ) + TRAILING_COL_WIDTH + "px";
+      };
+      const onUp = () => {
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+        document.body.classList.remove("smart-table-resizing");
+        if (width !== startW) {
+          col.width = width;
+          commit();
+        }
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    };
+
     const thead = table.createEl("thead");
     const htr = thead.createEl("tr");
-    state.columns.forEach((col) => {
+    state.columns.forEach((col, index) => {
       const th = htr.createEl("th", { cls: "smart-table-th" });
       const inner = th.createDiv({ cls: "smart-table-th-inner" });
       setIcon(inner.createSpan({ cls: "smart-table-th-ico" }), typeIcon(col.type));
@@ -838,6 +921,9 @@ function renderTable(app, source, el, ctx) {
       const menuBtn = inner.createSpan({ cls: "smart-table-th-menu" });
       setIcon(menuBtn, "chevron-down");
       menuBtn.onclick = (e) => openColumnMenu(e, col);
+      const handle = th.createDiv({ cls: "smart-table-col-resize" });
+      handle.setAttr("aria-label", "Drag to resize column");
+      handle.addEventListener("mousedown", (e) => startResize(e, col, index));
     });
     const thAdd = htr.createEl("th", { cls: "smart-table-th-add" });
     setIcon(thAdd, "plus");
