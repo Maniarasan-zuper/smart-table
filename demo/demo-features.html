@@ -1,0 +1,323 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      :root {
+        --bg: #ffffff;
+        --text: rgb(55, 53, 47);
+        --muted: #8a8780;
+        --faint: #b4b1aa;
+        --border: #e6e4df;
+        --secondary: #faf9f7;
+        --accent: #4a7dff;
+        --danger: #c0392b;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        width: 820px;
+        height: 560px;
+        background: #f3f2ef;
+        font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: var(--text);
+        -webkit-font-smoothing: antialiased;
+        display: flex;
+        justify-content: center;
+      }
+      .window {
+        width: 760px;
+        margin-top: 24px;
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        box-shadow: 0 18px 50px rgba(0, 0, 0, 0.1);
+        overflow: hidden;
+        align-self: flex-start;
+      }
+      .titlebar {
+        height: 38px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0 14px;
+        border-bottom: 1px solid var(--border);
+        background: var(--secondary);
+      }
+      .dot { width: 11px; height: 11px; border-radius: 50%; }
+      .r { background: #ff5f57; } .y { background: #febc2e; } .g { background: #28c840; }
+      .tab { margin-left: 14px; font-size: 12px; color: var(--muted); }
+      .doc { padding: 22px 26px 26px; position: relative; min-height: 470px; }
+      h1.note-title { font-size: 24px; font-weight: 700; margin: 0 0 6px; }
+      .caption {
+        font-size: 13px; color: var(--accent); font-weight: 600;
+        margin: 0 0 14px; height: 16px;
+      }
+
+      /* Toolbar */
+      .toolbar { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+      .btn {
+        display: inline-flex; align-items: center; gap: 5px;
+        padding: 3px 9px; font-size: 12px;
+        border: 1px solid var(--border); border-radius: 6px;
+        background: var(--bg); color: var(--muted);
+      }
+      .count { margin-left: auto; font-size: 12px; color: var(--faint); }
+
+      /* Grid */
+      .wrap { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; position: relative; }
+      table.grid { border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+      .grid th, .grid td {
+        border-right: 1px solid var(--border);
+        border-bottom: 1px solid var(--border);
+        text-align: left;
+        vertical-align: top;
+      }
+      .grid tr td:last-child, .grid tr th:last-child { border-right: none; }
+      .grid tbody tr:last-child td { border-bottom: none; }
+      .grid thead th { background: var(--secondary); position: relative; }
+      .th-inner { display: flex; align-items: center; gap: 6px; padding: 6px 9px; overflow: hidden; }
+      .th-ico { color: var(--faint); font-size: 12px; width: 14px; text-align: center; }
+      .th-name { flex: 1; font-weight: 600; white-space: nowrap; }
+      .th-menu { color: var(--faint); }
+      .cell { padding: 7px 9px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
+      .cell.num { color: var(--text); }
+
+      .pill {
+        display: inline-block; padding: 2px 10px; border-radius: 999px;
+        font-size: 11px; font-weight: 500;
+      }
+
+      /* Resize handle on a header's right edge */
+      .rz {
+        position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+        cursor: col-resize;
+      }
+      .rz.hot { background: var(--accent); opacity: 0.55; }
+      /* Vertical guide line shown while dragging */
+      .guide {
+        position: absolute; top: 0; width: 2px; height: 100%;
+        background: var(--accent); z-index: 5;
+      }
+      .guide::after {
+        content: attr(data-w);
+        position: absolute; top: 5px; right: 4px;
+        background: var(--accent); color: #fff; font-size: 11px; font-weight: 600;
+        padding: 1px 7px; border-radius: 5px; white-space: nowrap;
+      }
+      /* Fake cursor */
+      .cursor {
+        position: absolute; z-index: 7; font-size: 16px;
+        filter: drop-shadow(0 1px 1px rgba(0,0,0,0.3));
+      }
+
+      /* Right-click context menu */
+      .menu {
+        position: absolute; z-index: 8;
+        background: var(--bg); border: 1px solid var(--border);
+        border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+        padding: 5px; min-width: 150px;
+      }
+      .menu-item {
+        display: flex; align-items: center; gap: 8px;
+        padding: 6px 10px; font-size: 13px; border-radius: 6px; color: var(--danger);
+      }
+      .menu-item.hot { background: rgba(192, 57, 43, 0.10); }
+
+      /* Confirm modal */
+      .scrim {
+        position: absolute; inset: 0; background: rgba(0,0,0,0.28);
+        z-index: 9; display: flex; align-items: center; justify-content: center;
+      }
+      .modal {
+        background: var(--bg); border-radius: 10px; width: 340px;
+        padding: 18px 18px 14px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      }
+      .modal h3 { margin: 0 0 8px; font-size: 16px; }
+      .modal p { margin: 0 0 16px; font-size: 13px; color: var(--muted); line-height: 1.4; }
+      .modal-row { display: flex; justify-content: flex-end; gap: 8px; }
+      .m-btn { padding: 6px 14px; font-size: 13px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); }
+      .m-btn.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+    </style>
+  </head>
+  <body>
+    <div class="window">
+      <div class="titlebar">
+        <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+        <span class="tab">Project tracker.md</span>
+      </div>
+      <div class="doc">
+        <h1 class="note-title">Project tracker</h1>
+        <p class="caption" id="caption"></p>
+        <div id="tbl"></div>
+      </div>
+    </div>
+
+    <script>
+      const PILL = {
+        Todo: ["#e6e4df", "#4a4843"],
+        "In progress": ["#d6e6ff", "#1f4b99"],
+        Done: ["#cdefd3", "#1f7a3d"],
+      };
+      const LONG =
+        "Waiting on the Figma handoff — needs the latest spacing tokens applied before we start review.";
+
+      const tbl = document.getElementById("tbl");
+      const captionEl = document.getElementById("caption");
+
+      function baseRows() {
+        return [
+          { Task: "Draft proposal", Status: "Done", Notes: "Shared with the team" },
+          { Task: "Review designs", Status: "In progress", Notes: "Short note" },
+          { Task: "Ship release", Status: "Todo", Notes: "Tag v1.3.0" },
+          { Task: "Fix login bug", Status: "Done", Notes: "Stale token" },
+        ];
+      }
+
+      // opts: { notesWidth, wrapRow, guideAt, hotHandle, cursor, menu, modal, removed, caption }
+      function render(opts) {
+        opts = opts || {};
+        captionEl.textContent = opts.caption || "";
+        const notesW = opts.notesWidth || 220;
+        const statusW = opts.statusWidth || 140;
+        const cols = [
+          { name: "Task", ico: "T", width: 190 },
+          { name: "Status", ico: "◉", width: statusW },
+          { name: "Notes", ico: "T", width: notesW },
+        ];
+        let rows = baseRows();
+        if (opts.removed != null) rows.splice(opts.removed, 1);
+        if (opts.wrapRow != null && rows[opts.wrapRow]) rows[opts.wrapRow].Notes = LONG;
+
+        tbl.innerHTML = "";
+
+        const bar = document.createElement("div");
+        bar.className = "toolbar";
+        bar.innerHTML =
+          '<span class="btn">+ Row</span>' +
+          '<span class="btn">+ Column</span>' +
+          '<span class="btn">⛃ Filter</span>' +
+          '<span class="btn">⭳ Export CSV</span>' +
+          '<span class="count">' + rows.length + " of " + rows.length + "</span>";
+        tbl.appendChild(bar);
+
+        const wrap = document.createElement("div");
+        wrap.className = "wrap";
+        const totalW = cols.reduce((s, c) => s + c.width, 0);
+
+        let html = '<table class="grid" style="width:' + totalW + 'px"><colgroup>';
+        cols.forEach((c) => (html += '<col style="width:' + c.width + 'px">'));
+        html += "</colgroup><thead><tr>";
+        cols.forEach((c, i) => {
+          const hot = opts.hotHandle === i ? " hot" : "";
+          html +=
+            '<th><div class="th-inner"><span class="th-ico">' + c.ico +
+            '</span><span class="th-name">' + c.name + "</span>" +
+            '<span class="th-menu">⌄</span></div>' +
+            (i < cols.length - 1 ? '<div class="rz' + hot + '"></div>' : "") +
+            "</th>";
+        });
+        html += "</tr></thead><tbody>";
+        rows.forEach((r) => {
+          const p = PILL[r.Status];
+          html +=
+            "<tr>" +
+            '<td class="cell">' + r.Task + "</td>" +
+            '<td class="cell"><span class="pill" style="background:' + p[0] +
+            ";color:" + p[1] + '">' + r.Status + "</span></td>" +
+            '<td class="cell">' + r.Notes + "</td>" +
+            "</tr>";
+        });
+        html += "</tbody></table>";
+
+        if (opts.guideAt != null) {
+          html +=
+            '<div class="guide" data-w="' + (opts.guideLabel || notesW + " px") +
+            '" style="left:' + (opts.guideAt - 1) + 'px"></div>';
+        }
+        wrap.innerHTML = html;
+        tbl.appendChild(wrap);
+
+        if (opts.menu) {
+          const m = document.createElement("div");
+          m.className = "menu";
+          m.style.left = opts.menu.x + "px";
+          m.style.top = opts.menu.y + "px";
+          m.innerHTML = '<div class="menu-item hot">🗑  Delete row</div>';
+          tbl.appendChild(m);
+        }
+
+        if (opts.modal) {
+          const s = document.createElement("div");
+          s.className = "scrim";
+          s.innerHTML =
+            '<div class="modal"><h3>Delete row?</h3>' +
+            "<p>This row has data. Deleting it can’t be undone.</p>" +
+            '<div class="modal-row"><span class="m-btn">Cancel</span>' +
+            '<span class="m-btn danger">Delete row</span></div></div>';
+          tbl.appendChild(s);
+        }
+
+        if (opts.cursor) {
+          const c = document.createElement("div");
+          c.className = "cursor";
+          c.style.left = opts.cursor.x + "px";
+          c.style.top = opts.cursor.y + "px";
+          c.textContent = opts.cursor.icon || "🖱";
+          tbl.appendChild(c);
+        }
+      }
+
+      window.renderState = function (state) {
+        const map = {
+          idle: { caption: "Typed columns, sortable, filterable" },
+          // Resize: grab the Status column's right edge, then drag it wider.
+          // Boundary sits at 190 (Task) + Status width; the fake cursor is
+          // offset by the doc's 26px left padding to line up with the guide.
+          resizeGrab: {
+            caption: "Drag a column edge to resize",
+            hotHandle: 1,
+            cursor: { x: 356, y: 250, icon: "↔" },
+          },
+          resizeWide: {
+            caption: "Drag a column edge to resize",
+            statusWidth: 230,
+            guideAt: 420,
+            guideLabel: "230 px",
+            cursor: { x: 446, y: 250, icon: "↔" },
+          },
+          // Wrapping: long text wraps onto multiple lines.
+          wrap: {
+            caption: "Long text wraps onto multiple lines",
+            notesWidth: 330,
+            wrapRow: 1,
+          },
+          // Right-click a row -> Delete row.
+          menu: {
+            caption: "Right-click any row to delete it",
+            notesWidth: 330,
+            wrapRow: 1,
+            menu: { x: 150, y: 235 },
+            cursor: { x: 250, y: 250, icon: "🖱" },
+          },
+          // Confirmation guards rows that have data.
+          confirm: {
+            caption: "Rows with data ask before deleting",
+            notesWidth: 330,
+            wrapRow: 1,
+            modal: true,
+          },
+          // Row removed.
+          done: {
+            caption: "Done — the row is gone",
+            notesWidth: 330,
+            removed: 1,
+          },
+        };
+        render(map[state] || {});
+      };
+
+      window.renderState("idle");
+    </script>
+  </body>
+</html>

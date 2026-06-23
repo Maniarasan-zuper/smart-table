@@ -7,6 +7,10 @@ the note and sync like any other text.
 
 ![Smart Table demo](https://raw.githubusercontent.com/Maniarasan-zuper/smart-table/main/demo.gif)
 
+Resize columns by dragging, wrap long text, and delete safely:
+
+![Smart Table resize, wrap and safe-delete demo](https://raw.githubusercontent.com/Maniarasan-zuper/smart-table/main/demo-features.gif)
+
 ## Usage
 
 Run the command **Smart Table: Insert table** (Command palette, <kbd>Cmd/Ctrl</kbd>+<kbd>P</kbd>)
