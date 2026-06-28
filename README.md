@@ -28,8 +28,12 @@ in Reading view and Live Preview.
   deleting a row that has data; blank rows are removed instantly.
 - **Resize columns** — drag a column header's right edge; the width is saved
   with the table.
-- **Wrapping text** — text columns wrap long content onto multiple lines and
-  grow the row to fit.
+- **Wrapping text** — text columns and column headers wrap long content onto
+  multiple lines and grow to fit.
+- **Align text** — a column's ▾ menu → **Text align** sets Left / Center / Right
+  for every cell in that column.
+- **Reorder** — drag a column by its type icon to move it; hover a row and drag
+  the ⠿ grip to reorder rows (dragging a sorted row switches to manual order).
 - **Column types** — Text, Number, Date, Checkbox, Select, and **Status**
   (colored pills; add your own options on the fly).
 - **Export CSV** — the toolbar **Export CSV** button downloads the table as

@@ -114,6 +114,10 @@ body.smart-table-resizing {
 .smart-table-th-ico {
   display: inline-flex;
   color: var(--text-faint);
+  cursor: grab;
+}
+.smart-table-th-ico:active {
+  cursor: grabbing;
 }
 .smart-table-th-ico .svg-icon {
   width: 14px;
@@ -126,8 +130,17 @@ body.smart-table-resizing {
   background: transparent;
   font-weight: 600;
   font-size: var(--font-ui-small);
+  font-family: inherit;
   color: var(--text-normal);
   padding: 2px 2px;
+  /* Auto-growing textarea: wrap long names, no manual resize handle. */
+  display: block;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.3;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  box-sizing: border-box;
 }
 .smart-table-th-name:focus {
   outline: none;
@@ -243,6 +256,52 @@ select.smart-table-filter-input {
   padding: 12px;
   text-align: center;
   color: var(--text-faint);
+}
+
+/* Drag-and-drop reorder */
+.smart-table-td:first-child {
+  position: relative;
+}
+.smart-table-row-grip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-faint);
+  background: var(--background-primary);
+  cursor: grab;
+  opacity: 0;
+  z-index: 2;
+}
+.smart-table-row-grip:active {
+  cursor: grabbing;
+}
+.smart-table-grid tbody tr:hover .smart-table-row-grip {
+  opacity: 1;
+}
+.smart-table-row-grip .svg-icon {
+  width: 13px;
+  height: 13px;
+}
+.smart-table-grid .st-dragging {
+  opacity: 0.4;
+}
+/* Insertion indicators while dragging */
+tr.st-drop-above td {
+  box-shadow: inset 0 2px 0 0 var(--text-accent);
+}
+tr.st-drop-below td {
+  box-shadow: inset 0 -2px 0 0 var(--text-accent);
+}
+th.st-drop-left {
+  box-shadow: inset 2px 0 0 0 var(--text-accent);
+}
+th.st-drop-right {
+  box-shadow: inset -2px 0 0 0 var(--text-accent);
 }
 
 /* Footer "+ New row" */

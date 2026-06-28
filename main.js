@@ -49,6 +49,22 @@ function columnWidth(col) {
   return Math.max(MIN_COL_WIDTH, w || FALLBACK_COL_WIDTH);
 }
 
+// Reorder helper for drag-and-drop: move the item with id `fromId` to just
+// before or after `toId` within `arr` (mutates in place).
+function moveById(arr, fromId, toId, after) {
+  if (fromId === toId) return;
+  const fromIdx = arr.findIndex((x) => x.id === fromId);
+  if (fromIdx < 0) return;
+  const [item] = arr.splice(fromIdx, 1);
+  let toIdx = arr.findIndex((x) => x.id === toId);
+  if (toIdx < 0) {
+    arr.push(item);
+    return;
+  }
+  if (after) toIdx += 1;
+  arr.splice(toIdx, 0, item);
+}
+
 function typeIcon(t) {
   return (
     {
@@ -611,6 +627,38 @@ function renderTable(app, source, el, ctx) {
       )
     );
     menu.addSeparator();
+    // Text alignment for the whole column. "left" is the default, so we clear
+    // the property rather than storing it.
+    const ALIGNS = [
+      ["left", "Left", "align-left"],
+      ["center", "Center", "align-center"],
+      ["right", "Right", "align-right"],
+    ];
+    const curAlign = col.align || "left";
+    const setAlign = (val) => {
+      if (val === "left") delete col.align;
+      else col.align = val;
+      commit();
+    };
+    menu.addItem((parent) => {
+      parent.setTitle("Text align").setIcon("align-" + curAlign);
+      // Prefer a nested submenu; fall back to flat items on older Obsidian
+      // builds that lack MenuItem.setSubmenu().
+      if (typeof parent.setSubmenu === "function") {
+        const sub = parent.setSubmenu();
+        ALIGNS.forEach(([val, label, icon]) =>
+          sub.addItem((s) =>
+            s
+              .setTitle(label)
+              .setIcon(curAlign === val ? "check" : icon)
+              .onClick(() => setAlign(val))
+          )
+        );
+      } else {
+        parent.onClick(() => setAlign(curAlign === "right" ? "left" : "right"));
+      }
+    });
+    menu.addSeparator();
     menu.addItem((i) =>
       i
         .setTitle("Rename…")
@@ -758,6 +806,9 @@ function renderTable(app, source, el, ctx) {
 
   function renderCell(td, col, row) {
     const val = row.cells[col.id];
+    // text-align is inherited, so setting it on the cell aligns inputs, the
+    // textarea's text, pills, and the checkbox alike.
+    if (col.align) td.style.textAlign = col.align;
     if (col.type === "checkbox") {
       const cb = td.createEl("input", { attr: { type: "checkbox" } });
       cb.checked = val === true || val === "true";
@@ -900,18 +951,94 @@ function renderTable(app, source, el, ctx) {
       document.addEventListener("mouseup", onUp);
     };
 
+    // Drag-and-drop reorder state. These live for one render; a commit (which
+    // rebuilds) resets them. A drag completes within a single render, so that's
+    // fine.
+    let dragColId = null;
+    let dragRowId = null;
+    const clearColIndicators = () =>
+      table
+        .querySelectorAll("th.st-drop-left, th.st-drop-right")
+        .forEach((n) => n.classList.remove("st-drop-left", "st-drop-right"));
+    const clearRowIndicators = () =>
+      table
+        .querySelectorAll("tr.st-drop-above, tr.st-drop-below")
+        .forEach((n) => n.classList.remove("st-drop-above", "st-drop-below"));
+    // Dragging a row clears any active sort, but first bakes the current sorted
+    // order into state.rows so nothing visibly reshuffles.
+    const bakeSortThenClear = () => {
+      if (!state.sort) return;
+      const col = state.columns.find((c) => c.id === state.sort.col);
+      if (col) {
+        const dir = state.sort.dir === "desc" ? -1 : 1;
+        state.rows.sort(
+          (a, b) => dir * compareValues(a.cells[col.id], b.cells[col.id], col.type)
+        );
+      }
+      state.sort = null;
+    };
+
     const thead = table.createEl("thead");
     const htr = thead.createEl("tr");
     state.columns.forEach((col, index) => {
       const th = htr.createEl("th", { cls: "smart-table-th" });
+      // Drop target for column reorder.
+      th.addEventListener("dragover", (e) => {
+        if (dragColId == null || dragColId === col.id) return;
+        e.preventDefault();
+        const r = th.getBoundingClientRect();
+        const after = e.clientX > r.left + r.width / 2;
+        clearColIndicators();
+        th.classList.add(after ? "st-drop-right" : "st-drop-left");
+      });
+      th.addEventListener("dragleave", () =>
+        th.classList.remove("st-drop-left", "st-drop-right")
+      );
+      th.addEventListener("drop", (e) => {
+        if (dragColId == null) return;
+        e.preventDefault();
+        const r = th.getBoundingClientRect();
+        const after = e.clientX > r.left + r.width / 2;
+        moveById(state.columns, dragColId, col.id, after);
+        dragColId = null;
+        commit();
+      });
       const inner = th.createDiv({ cls: "smart-table-th-inner" });
-      setIcon(inner.createSpan({ cls: "smart-table-th-ico" }), typeIcon(col.type));
-      const name = inner.createEl("input", { cls: "smart-table-th-name" });
+      // The type icon doubles as the column's drag handle (Notion-style),
+      // keeping the editable name field free for text selection.
+      const ico = inner.createSpan({ cls: "smart-table-th-ico" });
+      setIcon(ico, typeIcon(col.type));
+      ico.draggable = true;
+      ico.setAttr("aria-label", "Drag to reorder column");
+      ico.addEventListener("dragstart", (e) => {
+        dragColId = col.id;
+        if (e.dataTransfer) {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", col.id);
+        }
+        th.classList.add("st-dragging");
+      });
+      ico.addEventListener("dragend", () => {
+        dragColId = null;
+        clearColIndicators();
+        th.classList.remove("st-dragging");
+      });
+      // Auto-growing textarea (not an input) so long column names wrap onto
+      // multiple lines instead of being clipped to one.
+      const name = inner.createEl("textarea", { cls: "smart-table-th-name" });
+      name.rows = 1;
       name.value = col.name;
+      if (col.align) name.style.textAlign = col.align;
+      const sizeName = () => {
+        name.style.height = "auto";
+        name.style.height = name.scrollHeight + "px";
+      };
+      name.addEventListener("input", sizeName);
       name.onchange = () => {
         col.name = name.value;
         commit();
       };
+      window.setTimeout(sizeName, 0);
       if (state.sort && state.sort.col === col.id) {
         inner.createSpan({
           cls: "smart-table-sort",
@@ -993,10 +1120,55 @@ function renderTable(app, source, el, ctx) {
         );
         menu.showAtMouseEvent(e);
       };
-      state.columns.forEach((col) => {
+      // Drop target for row reorder.
+      tr.addEventListener("dragover", (e) => {
+        if (dragRowId == null || dragRowId === row.id) return;
+        e.preventDefault();
+        const r = tr.getBoundingClientRect();
+        const below = e.clientY > r.top + r.height / 2;
+        clearRowIndicators();
+        tr.classList.add(below ? "st-drop-below" : "st-drop-above");
+      });
+      tr.addEventListener("dragleave", () =>
+        tr.classList.remove("st-drop-above", "st-drop-below")
+      );
+      tr.addEventListener("drop", (e) => {
+        if (dragRowId == null) return;
+        e.preventDefault();
+        const r = tr.getBoundingClientRect();
+        const below = e.clientY > r.top + r.height / 2;
+        moveById(state.rows, dragRowId, row.id, below);
+        dragRowId = null;
+        commit();
+      });
+      let firstTd = null;
+      state.columns.forEach((col, ci) => {
         const td = tr.createEl("td", { cls: "smart-table-td" });
+        if (ci === 0) firstTd = td;
         renderCell(td, col, row);
       });
+      // Hover-only drag grip overlaid at the row's left edge — no permanent
+      // gutter column.
+      if (firstTd) {
+        const grip = firstTd.createDiv({ cls: "smart-table-row-grip" });
+        setIcon(grip, "grip-vertical");
+        grip.setAttr("aria-label", "Drag to reorder row");
+        grip.draggable = true;
+        grip.addEventListener("dragstart", (e) => {
+          bakeSortThenClear();
+          dragRowId = row.id;
+          if (e.dataTransfer) {
+            e.dataTransfer.effectAllowed = "move";
+            e.dataTransfer.setData("text/plain", row.id);
+          }
+          tr.classList.add("st-dragging");
+        });
+        grip.addEventListener("dragend", () => {
+          dragRowId = null;
+          clearRowIndicators();
+          tr.classList.remove("st-dragging");
+        });
+      }
       const tdDel = tr.createEl("td", { cls: "smart-table-td-del" });
       const del = tdDel.createSpan({ cls: "smart-table-row-del" });
       setIcon(del, "x");
