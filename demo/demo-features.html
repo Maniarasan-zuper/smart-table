@@ -76,10 +76,10 @@
       .grid tr td:last-child, .grid tr th:last-child { border-right: none; }
       .grid tbody tr:last-child td { border-bottom: none; }
       .grid thead th { background: var(--secondary); position: relative; }
-      .th-inner { display: flex; align-items: center; gap: 6px; padding: 6px 9px; overflow: hidden; }
-      .th-ico { color: var(--faint); font-size: 12px; width: 14px; text-align: center; }
-      .th-name { flex: 1; font-weight: 600; white-space: nowrap; }
-      .th-menu { color: var(--faint); }
+      .th-inner { display: flex; align-items: flex-start; gap: 6px; padding: 6px 9px; }
+      .th-ico { color: var(--faint); font-size: 12px; width: 14px; text-align: center; flex: none; margin-top: 1px; }
+      .th-name { flex: 1; min-width: 0; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+      .th-menu { color: var(--faint); flex: none; }
       .cell { padding: 7px 9px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; }
       .cell.num { color: var(--text); }
 
@@ -138,6 +138,17 @@
       .modal-row { display: flex; justify-content: flex-end; gap: 8px; }
       .m-btn { padding: 6px 14px; font-size: 13px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg); }
       .m-btn.danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+      /* Reorder: dimmed source + accent drop edges (mirrors the plugin). */
+      .cell { position: relative; }
+      .dim { opacity: 0.4; }
+      .edge-left { box-shadow: inset 2px 0 0 0 var(--accent); }
+      .edge-top { box-shadow: inset 0 2px 0 0 var(--accent); }
+      .rowgrip {
+        position: absolute; left: 3px; top: 50%; transform: translateY(-50%);
+        color: var(--muted); font-size: 13px; line-height: 1; letter-spacing: -1px;
+      }
+      .th-ico.grab { color: var(--accent); cursor: grabbing; }
     </style>
   </head>
   <body>
@@ -174,16 +185,23 @@
         ];
       }
 
-      // opts: { notesWidth, wrapRow, guideAt, hotHandle, cursor, menu, modal, removed, caption }
+      // opts: {
+      //   notesWidth, statusWidth, headers (name overrides), align (per-col),
+      //   wrapRow, guideAt/guideLabel, hotHandle, cursor, menu, modal, removed,
+      //   dimCol, dropCol (drop-before column), grabCol (grabbed icon),
+      //   dimRow, gripRow, dropRow (drop-above row), caption
+      // }
       function render(opts) {
         opts = opts || {};
         captionEl.textContent = opts.caption || "";
         const notesW = opts.notesWidth || 220;
         const statusW = opts.statusWidth || 140;
+        const names = opts.headers || ["Task", "Status", "Notes"];
+        const align = opts.align || {};
         const cols = [
-          { name: "Task", ico: "T", width: 190 },
-          { name: "Status", ico: "◉", width: statusW },
-          { name: "Notes", ico: "T", width: notesW },
+          { name: names[0], ico: "T", width: 190 },
+          { name: names[1], ico: "◉", width: statusW },
+          { name: names[2], ico: "T", width: notesW },
         ];
         let rows = baseRows();
         if (opts.removed != null) rows.splice(opts.removed, 1);
@@ -204,28 +222,42 @@
         const wrap = document.createElement("div");
         wrap.className = "wrap";
         const totalW = cols.reduce((s, c) => s + c.width, 0);
+        // Per-column class fragments shared by header + body cells.
+        const colCls = (i) =>
+          (opts.dimCol === i ? " dim" : "") + (opts.dropCol === i ? " edge-left" : "");
+        const colStyle = (i) => (align[i] ? ' style="text-align:' + align[i] + '"' : "");
 
         let html = '<table class="grid" style="width:' + totalW + 'px"><colgroup>';
         cols.forEach((c) => (html += '<col style="width:' + c.width + 'px">'));
         html += "</colgroup><thead><tr>";
         cols.forEach((c, i) => {
           const hot = opts.hotHandle === i ? " hot" : "";
+          const grab = opts.grabCol === i ? " grab" : "";
           html +=
-            '<th><div class="th-inner"><span class="th-ico">' + c.ico +
-            '</span><span class="th-name">' + c.name + "</span>" +
+            '<th class="' + colCls(i).trim() + '"><div class="th-inner"><span class="th-ico' +
+            grab + '">' + c.ico + "</span><span class=\"th-name\">" + c.name + "</span>" +
             '<span class="th-menu">⌄</span></div>' +
             (i < cols.length - 1 ? '<div class="rz' + hot + '"></div>' : "") +
             "</th>";
         });
         html += "</tr></thead><tbody>";
-        rows.forEach((r) => {
+        rows.forEach((r, ri) => {
           const p = PILL[r.Status];
+          const rowDim = opts.dimRow === ri ? " dim" : "";
+          const rowEdge = opts.dropRow === ri ? " edge-top" : "";
+          const grip =
+            opts.gripRow === ri ? '<span class="rowgrip">⠿</span>' : "";
+          const tc = (i, inner) =>
+            '<td class="cell' + rowEdge + colCls(i) + '"' + colStyle(i) + ">" + inner + "</td>";
           html +=
-            "<tr>" +
-            '<td class="cell">' + r.Task + "</td>" +
-            '<td class="cell"><span class="pill" style="background:' + p[0] +
-            ";color:" + p[1] + '">' + r.Status + "</span></td>" +
-            '<td class="cell">' + r.Notes + "</td>" +
+            '<tr class="' + rowDim.trim() + '">' +
+            tc(0, grip + r.Task) +
+            tc(
+              1,
+              '<span class="pill" style="background:' + p[0] + ";color:" + p[1] + '">' +
+                r.Status + "</span>"
+            ) +
+            tc(2, r.Notes) +
             "</tr>";
         });
         html += "</tbody></table>";
@@ -270,15 +302,14 @@
 
       window.renderState = function (state) {
         const map = {
-          idle: { caption: "Typed columns, sortable, filterable" },
-          // Resize: grab the Status column's right edge, then drag it wider.
-          // Boundary sits at 190 (Task) + Status width; the fake cursor is
-          // offset by the doc's 26px left padding to line up with the guide.
-          resizeGrab: {
-            caption: "Drag a column edge to resize",
-            hotHandle: 1,
-            cursor: { x: 356, y: 250, icon: "↔" },
+          idle: { caption: "Typed columns · sort · filter · export CSV" },
+          // Header wrapping: a long column name wraps onto two lines.
+          headerWrap: {
+            caption: "Long column names wrap in the header",
+            statusWidth: 150,
+            headers: ["Task", "Status / blocked / waiting on", "Notes"],
           },
+          // Resize: grab the Status column's right edge and drag it wider.
           resizeWide: {
             caption: "Drag a column edge to resize",
             statusWidth: 230,
@@ -286,11 +317,34 @@
             guideLabel: "230 px",
             cursor: { x: 446, y: 250, icon: "↔" },
           },
-          // Wrapping: long text wraps onto multiple lines.
+          // Wrapping: long cell text wraps onto multiple lines.
           wrap: {
             caption: "Long text wraps onto multiple lines",
             notesWidth: 330,
             wrapRow: 1,
+          },
+          // Alignment: center the Status column, right-align Notes.
+          align: {
+            caption: "Align columns: left, center, or right",
+            statusWidth: 150,
+            align: { 1: "center", 2: "right" },
+          },
+          // Column reorder: grab a column by its icon; drop before another.
+          colReorder: {
+            caption: "Drag a column by its icon to reorder",
+            statusWidth: 150,
+            dimCol: 0,
+            grabCol: 0,
+            dropCol: 2,
+            cursor: { x: 470, y: 196, icon: "✊" },
+          },
+          // Row reorder: drag a row by its grip; drop above another.
+          rowReorder: {
+            caption: "Drag the row grip to reorder rows",
+            dimRow: 0,
+            gripRow: 0,
+            dropRow: 3,
+            cursor: { x: 120, y: 238, icon: "✊" },
           },
           // Right-click a row -> Delete row.
           menu: {

@@ -7,9 +7,10 @@ the note and sync like any other text.
 
 ![Smart Table demo](https://raw.githubusercontent.com/Maniarasan-zuper/smart-table/main/demo.gif)
 
-Resize columns by dragging, wrap long text, and delete safely:
+Wrap headers and cells, resize and align columns, drag to reorder rows and
+columns, and delete safely:
 
-![Smart Table resize, wrap and safe-delete demo](https://raw.githubusercontent.com/Maniarasan-zuper/smart-table/main/demo-features.gif)
+![Smart Table header/text wrap, resize, align, reorder and safe-delete demo](https://raw.githubusercontent.com/Maniarasan-zuper/smart-table/main/demo-features.gif)
 
 ## Usage
 

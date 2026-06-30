@@ -14,12 +14,15 @@ const FRAME_MS = 100; // 10 fps
 // Each step holds a rendered state for `hold` ms so the story is readable.
 const SEQ = [
   ["idle", 1500],
-  ["resizeGrab", 1100],
+  ["headerWrap", 1800],
   ["resizeWide", 1700],
-  ["wrap", 2000],
-  ["menu", 1700],
-  ["confirm", 2200],
-  ["done", 1700],
+  ["wrap", 1900],
+  ["align", 1800],
+  ["colReorder", 1900],
+  ["rowReorder", 1900],
+  ["menu", 1600],
+  ["confirm", 2100],
+  ["done", 1600],
 ];
 
 (async () => {
