@@ -75,6 +75,11 @@ Preview (or switch to Source mode).
    `<your vault>/.obsidian/plugins/smart-table/`.
 2. **Settings → Community plugins → Enable Smart Table.**
 
+## Support
+
+Smart Table is free and open source. If it's useful to you, you can support its
+development with a one-off tip: [Donate via PayPal](https://www.paypal.com/ncp/payment/TJU2LU6MW9JCQ). Thank you!
+
 ## License
 
 MIT © maniarasan.s

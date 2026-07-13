@@ -1,10 +1,11 @@
 {
   "id": "smart-table",
   "name": "Smart Table",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "minAppVersion": "1.0.0",
   "description": "Interactive tables in your notes: typed columns, sorting, filtering, status pills, and add or remove columns and rows.",
   "author": "maniarasan.s",
   "authorUrl": "https://github.com/Maniarasan-zuper",
+  "fundingUrl": "https://www.paypal.com/ncp/payment/TJU2LU6MW9JCQ",
   "isDesktopOnly": false
 }
