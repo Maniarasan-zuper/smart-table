@@ -19,15 +19,35 @@ const PALETTE = {
 };
 const PALETTE_KEYS = Object.keys(PALETTE);
 
-const COLUMN_TYPES = ["text", "number", "date", "checkbox", "select", "status"];
+const COLUMN_TYPES = [
+  "text",
+  "number",
+  "date",
+  "datetime",
+  "checkbox",
+  "select",
+  "status",
+];
 const TYPE_LABELS = {
   text: "Text",
   number: "Number",
   date: "Date",
+  datetime: "Date & time",
   checkbox: "Checkbox",
   select: "Select",
   status: "Status",
 };
+
+// Normalize a date-time string to the value an <input type="datetime-local">
+// expects (YYYY-MM-DDTHH:mm), accepting either a space or "T" separator and an
+// optional seconds component. Returns the trimmed input unchanged if it doesn't
+// look like a date-time.
+function toDatetimeLocal(s) {
+  const m = String(s == null ? "" : s)
+    .trim()
+    .match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2})/);
+  return m ? m[1] + "T" + m[2] : String(s == null ? "" : s).trim();
+}
 
 // Column sizing. Widths are stored per column (in px) once a user drags to
 // resize; until then each type falls back to a sensible default. The grid uses
@@ -35,6 +55,7 @@ const TYPE_LABELS = {
 const DEFAULT_COL_WIDTHS = {
   checkbox: 90,
   date: 140,
+  datetime: 180,
   number: 110,
   status: 150,
   select: 150,
@@ -71,6 +92,7 @@ function typeIcon(t) {
       text: "text",
       number: "hash",
       date: "calendar",
+      datetime: "calendar-clock",
       checkbox: "check-square",
       select: "chevron-down-circle",
       status: "circle-dot",
@@ -172,10 +194,11 @@ function matchesFilter(col, raw, fv) {
     if (maxS !== "" && n > parseFloat(maxS)) return false;
     return true;
   }
-  if (col.type === "date") {
+  if (col.type === "date" || col.type === "datetime") {
     const [from, to] = splitPair(fv);
     if (from === "" && to === "") return true;
-    // Stored as YYYY-MM-DD, which compares chronologically as strings.
+    // Stored as YYYY-MM-DD (or YYYY-MM-DDTHH:mm), both of which compare
+    // chronologically as strings.
     const v = raw == null ? "" : String(raw);
     if (!v) return false;
     if (from && v < from) return false;
@@ -303,6 +326,7 @@ function exportTableCSV(state) {
         .map((c) => {
           const v = row.cells[c.id];
           if (c.type === "checkbox") return esc(v === true || v === "true");
+          if (c.type === "datetime") return esc(v ? String(v).replace("T", " ") : "");
           return esc(v);
         })
         .join(",")
@@ -365,6 +389,9 @@ function inferColumnType(values) {
   const isBool = (v) => /^(\[[ xX]?\]|true|false|yes|no)$/i.test(v.trim());
   if (nonEmpty.every(isBool)) return "checkbox";
   if (nonEmpty.every((v) => /^-?\d+(\.\d+)?$/.test(v.trim()))) return "number";
+  // Check date-time before date, since a date-time string starts with a date.
+  if (nonEmpty.every((v) => /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(v.trim())))
+    return "datetime";
   if (nonEmpty.every((v) => /^\d{4}-\d{2}-\d{2}$/.test(v.trim()))) return "date";
   return "text";
 }
@@ -396,7 +423,12 @@ function parseMarkdownTable(text) {
     const cells = {};
     columns.forEach((col, i) => {
       const raw = r[i] == null ? "" : r[i];
-      cells[col.id] = col.type === "checkbox" ? toBool(raw) : raw;
+      cells[col.id] =
+        col.type === "checkbox"
+          ? toBool(raw)
+          : col.type === "datetime"
+          ? toDatetimeLocal(raw)
+          : raw;
     });
     return { id: uid("r"), cells };
   });
@@ -775,9 +807,14 @@ function renderTable(app, source, el, ctx) {
         if (o.label === cur) op.selected = true;
       });
       sel.onchange = () => setFilter(col, sel.value);
-    } else if (col.type === "number" || col.type === "date") {
+    } else if (col.type === "number" || col.type === "date" || col.type === "datetime") {
       const [a, b] = splitPair(cur);
-      const inType = col.type === "number" ? "number" : "date";
+      const inType =
+        col.type === "number"
+          ? "number"
+          : col.type === "datetime"
+          ? "datetime-local"
+          : "date";
       const box = fth.createDiv({ cls: "smart-table-filter-pair" });
       const lo = box.createEl("input", {
         cls: "smart-table-filter-input",
@@ -829,12 +866,19 @@ function renderTable(app, source, el, ctx) {
         pill.setText("Empty");
       }
       pill.onclick = (e) => openSelectMenu(e, col, row);
-    } else if (col.type === "number" || col.type === "date") {
+    } else if (
+      col.type === "number" ||
+      col.type === "date" ||
+      col.type === "datetime"
+    ) {
       const inp = td.createEl("input", {
         cls: "smart-table-cell-input",
-        attr: { type: col.type },
+        attr: { type: col.type === "datetime" ? "datetime-local" : col.type },
       });
-      inp.value = val == null ? "" : val;
+      // datetime-local needs the YYYY-MM-DDTHH:mm form; normalize stored values
+      // that may use a space separator so they still populate the picker.
+      inp.value =
+        val == null ? "" : col.type === "datetime" ? toDatetimeLocal(val) : val;
       inp.onchange = () => {
         row.cells[col.id] = inp.value;
         commit();

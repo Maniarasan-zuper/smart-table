@@ -35,8 +35,9 @@ in Reading view and Live Preview.
   for every cell in that column.
 - **Reorder** — drag a column by its type icon to move it; hover a row and drag
   the ⠿ grip to reorder rows (dragging a sorted row switches to manual order).
-- **Column types** — Text, Number, Date, Checkbox, Select, and **Status**
-  (colored pills; add your own options on the fly).
+- **Column types** — Text, Number, Date, **Date & time**, Checkbox, Select, and
+  **Status** (colored pills; add your own options on the fly). Date & time sorts
+  and filters as a true timestamp.
 - **Export CSV** — the toolbar **Export CSV** button downloads the table as
   currently sorted and filtered (RFC 4180 quoting, UTF-8 BOM for Excel).
 
