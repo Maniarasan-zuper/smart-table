@@ -261,6 +261,16 @@ select.smart-table-filter-input {
 /* Drag-and-drop reorder */
 .smart-table-td:first-child {
   position: relative;
+  /* Reserve a left lane for the row grip so it never overlaps cell content
+     (e.g. a date-time picker or text) in the first column. */
+  padding-left: 20px;
+}
+/* Keep the header (and filter row) first cell aligned with the body lane. */
+.smart-table-th:first-child .smart-table-th-inner {
+  padding-left: 20px;
+}
+.smart-table-filter-row th:first-child {
+  padding-left: 20px;
 }
 .smart-table-row-grip {
   position: absolute;
