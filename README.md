@@ -1,9 +1,9 @@
 # Smart Table
 
-Interactive tables inside your notes — typed columns, sorting, filtering, and
-status pills, with easy add/remove of columns and rows. The table is stored as
-a fenced `smart-table` code block (JSON), so all your edits are saved right in
-the note and sync like any other text.
+A database-style data table inside your notes — typed columns, sorting,
+filtering, drag-to-reorder, and status pills, with easy add/remove of columns
+and rows. The table is stored as a fenced `smart-table` code block (JSON), so
+all your edits are saved right in the note and sync like any other text.
 
 ![Smart Table demo](https://raw.githubusercontent.com/Maniarasan-zuper/smart-table/main/demo.gif)
 
