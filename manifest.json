@@ -1,7 +1,7 @@
 {
   "id": "smart-table",
   "name": "Smart Table",
-  "version": "1.5.3",
+  "version": "1.6.0",
   "minAppVersion": "1.0.0",
   "description": "A database-style data table for your notes: typed columns (text, number, date, checkbox, select, status), sorting, filtering, drag-to-reorder, and CSV export.",
   "author": "maniarasan.s",

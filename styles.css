@@ -376,3 +376,64 @@ th.st-drop-right {
   justify-content: flex-end;
   gap: 8px;
 }
+
+/* Options editor (color picker for status / select) */
+.smart-table-opt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 14px;
+}
+.smart-table-opt-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.smart-table-swatches {
+  display: flex;
+  gap: 4px;
+  flex: none;
+}
+.smart-table-swatch {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  box-sizing: border-box;
+}
+.smart-table-swatch.is-active {
+  border-color: var(--text-normal);
+}
+.smart-table-opt-label {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+}
+.smart-table-opt-del {
+  display: inline-flex;
+  cursor: pointer;
+  color: var(--text-faint);
+  flex: none;
+}
+.smart-table-opt-del:hover {
+  color: var(--text-error);
+}
+.smart-table-opt-del .svg-icon {
+  width: 15px;
+  height: 15px;
+}
+.smart-table-opt-empty {
+  color: var(--text-faint);
+  font-size: var(--font-ui-small);
+}
+.smart-table-opt-add {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}

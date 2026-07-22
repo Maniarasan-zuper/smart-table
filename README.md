@@ -38,6 +38,8 @@ in Reading view and Live Preview.
 - **Column types** — Text, Number, Date, **Date & time**, Checkbox, Select, and
   **Status** (colored pills; add your own options on the fly). Date & time sorts
   and filters as a true timestamp.
+- **Edit options** — a Status/Select column's ▾ menu → **Edit options** lets you
+  pick each option's color from a preset palette, rename it, or delete it.
 - **Export CSV** — the toolbar **Export CSV** button downloads the table as
   currently sorted and filtered (RFC 4180 quoting, UTF-8 BOM for Excel).
 

@@ -565,6 +565,129 @@ function confirmAction(app, title, message, confirmText, onConfirm) {
   new ConfirmModal(app, title, message, confirmText, onConfirm).open();
 }
 
+// Editor for a select/status column's options: pick each option's color from
+// the preset palette, rename it, delete it, or add new ones. Renames/deletes
+// migrate matching cell values in `rows`. `onChange` persists after each edit.
+class OptionsModal extends Modal {
+  constructor(app, col, rows, onChange) {
+    super(app);
+    this.col = col;
+    this.rows = rows;
+    this.onChange = onChange;
+  }
+  onOpen() {
+    const { contentEl } = this;
+    const { col, rows, onChange } = this;
+    contentEl.addClass("smart-table-modal");
+    contentEl.createEl("h3", { text: "Edit options — " + (col.name || "options") });
+    const list = contentEl.createDiv({ cls: "smart-table-opt-list" });
+
+    const renderRow = (opt) => {
+      const row = list.createDiv({ cls: "smart-table-opt-row" });
+      const swatches = row.createDiv({ cls: "smart-table-swatches" });
+      PALETTE_KEYS.forEach((key) => {
+        const sw = swatches.createDiv({ cls: "smart-table-swatch" });
+        sw.style.background = PALETTE[key][0];
+        if (opt.color === key) sw.addClass("is-active");
+        sw.setAttr("aria-label", key);
+        sw.onclick = () => {
+          opt.color = key;
+          swatches
+            .querySelectorAll(".smart-table-swatch")
+            .forEach((n) => n.removeClass("is-active"));
+          sw.addClass("is-active");
+          onChange();
+        };
+      });
+      const label = row.createEl("input", {
+        cls: "smart-table-opt-label",
+        attr: { type: "text" },
+      });
+      label.value = opt.label;
+      const rename = () => {
+        const v = label.value.trim();
+        if (!v || v === opt.label) {
+          label.value = opt.label;
+          return;
+        }
+        if ((col.options || []).some((o) => o !== opt && o.label === v)) {
+          label.value = opt.label; // avoid duplicate labels
+          return;
+        }
+        const old = opt.label;
+        opt.label = v;
+        rows.forEach((r) => {
+          if (String(r.cells[col.id]) === old) r.cells[col.id] = v;
+        });
+        onChange();
+      };
+      label.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          label.blur();
+        }
+      });
+      label.addEventListener("blur", rename);
+      const del = row.createSpan({ cls: "smart-table-opt-del" });
+      setIcon(del, "trash");
+      del.setAttr("aria-label", "Delete option");
+      del.onclick = () => {
+        col.options = (col.options || []).filter((o) => o !== opt);
+        rows.forEach((r) => {
+          if (String(r.cells[col.id]) === opt.label) r.cells[col.id] = "";
+        });
+        onChange();
+        renderList();
+      };
+    };
+
+    const renderList = () => {
+      list.empty();
+      (col.options || []).forEach(renderRow);
+      if (!(col.options || []).length) {
+        list.createDiv({
+          cls: "smart-table-opt-empty",
+          text: "No options yet — add one below.",
+        });
+      }
+    };
+    renderList();
+
+    const add = contentEl.createDiv({ cls: "smart-table-opt-add" });
+    const input = add.createEl("input", {
+      cls: "smart-table-opt-label",
+      attr: { type: "text", placeholder: "New option" },
+    });
+    const addBtn = add.createEl("button", { cls: "mod-cta", text: "Add" });
+    const doAdd = () => {
+      const v = input.value.trim();
+      if (!v) return;
+      addOption(col, v);
+      input.value = "";
+      onChange();
+      renderList();
+      input.focus();
+    };
+    addBtn.onclick = doAdd;
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        doAdd();
+      }
+    });
+
+    const foot = contentEl.createDiv({ cls: "smart-table-modal-row" });
+    const done = foot.createEl("button", { cls: "mod-cta", text: "Done" });
+    done.onclick = () => this.close();
+  }
+  onClose() {
+    this.contentEl.empty();
+  }
+}
+function editOptions(app, col, rows, onChange) {
+  new OptionsModal(app, col, rows, onChange).open();
+}
+
 // ---------------------------------------------------------------------------
 // Rendering
 // ---------------------------------------------------------------------------
@@ -691,6 +814,14 @@ function renderTable(app, source, el, ctx) {
       }
     });
     menu.addSeparator();
+    if (col.type === "status" || col.type === "select") {
+      menu.addItem((i) =>
+        i
+          .setTitle("Edit options…")
+          .setIcon("palette")
+          .onClick(() => editOptions(app, col, state.rows, commit))
+      );
+    }
     menu.addItem((i) =>
       i
         .setTitle("Rename…")
@@ -772,6 +903,12 @@ function renderTable(app, source, el, ctx) {
             }
           })
         )
+    );
+    menu.addItem((i) =>
+      i
+        .setTitle("Edit options…")
+        .setIcon("palette")
+        .onClick(() => editOptions(app, col, state.rows, commit))
     );
     menu.showAtMouseEvent(evt);
   }
