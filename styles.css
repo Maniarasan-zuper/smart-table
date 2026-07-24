@@ -50,6 +50,26 @@
   color: var(--text-faint);
 }
 
+/* Live Preview widget: render inside the editor with the interface font
+   (the CM content font may differ), with a little breathing room. */
+.smart-table-lp {
+  margin: 6px 0;
+}
+.cm-editor .smart-table {
+  font-family: var(--font-interface);
+}
+/* Suppress Obsidian's on-hover block outline / edit affordance around the
+   widget in Live Preview (the grid keeps its own border). */
+.cm-editor .smart-table-lp {
+  outline: none;
+}
+.markdown-source-view .cm-embed-block:has(.smart-table-lp) {
+  box-shadow: none !important;
+}
+.markdown-source-view .cm-embed-block:has(.smart-table-lp) .edit-block-button {
+  display: none !important;
+}
+
 /* Grid */
 .smart-table-wrap {
   overflow-x: auto;
@@ -179,18 +199,30 @@ body.smart-table-resizing {
   height: 15px;
 }
 
-/* Filter row */
+/* Filter row — a distinct filter bar, clearly not a data row: a tinted strip
+   separated from the header, with each control styled as a search field. */
+.smart-table-filter-row th {
+  background: var(--background-secondary);
+  border-top: 1px solid var(--st-border);
+  box-shadow: inset 0 2px 0 -1px var(--background-modifier-border);
+}
 .smart-table-filter-input {
-  width: 100%;
-  border: none;
-  background: transparent;
-  padding: 4px 8px;
+  width: calc(100% - 12px);
+  margin: 5px 6px;
+  border: 1px solid var(--st-border);
+  border-radius: 5px;
+  background: var(--background-primary);
+  padding: 3px 7px;
   font-size: var(--font-ui-smaller);
   color: var(--text-normal);
 }
+.smart-table-filter-input::placeholder {
+  color: var(--text-faint);
+}
 .smart-table-filter-input:focus {
   outline: none;
-  background: var(--background-modifier-hover);
+  border-color: var(--text-accent);
+  box-shadow: 0 0 0 1px var(--text-accent);
 }
 select.smart-table-filter-input {
   cursor: pointer;
@@ -198,13 +230,14 @@ select.smart-table-filter-input {
 .smart-table-filter-pair {
   display: flex;
   gap: 6px;
-  padding: 0 4px;
+  padding: 0 6px;
 }
 .smart-table-filter-pair .smart-table-filter-input {
   flex: 1;
   width: auto;
   min-width: 0;
-  padding-inline: 4px;
+  margin: 5px 0;
+  padding-inline: 5px;
 }
 
 /* Body cells */
@@ -300,11 +333,13 @@ select.smart-table-filter-input {
 
 /* Row selection */
 .smart-table-selcol {
-  width: 34px;
+  width: 42px;
   text-align: center;
+  vertical-align: middle;
 }
 .smart-table-selcol input {
-  margin: 6px auto;
+  display: block;
+  margin: 0 auto;
   cursor: pointer;
 }
 .smart-table-row-selected td {
@@ -337,33 +372,41 @@ select.smart-table-filter-input {
 }
 
 /* Drag-and-drop reorder */
-.smart-table-td-first {
+/* Reserve a left lane for the row grip so it never overlaps cell content
+   (e.g. a date-time picker or text) in the first column. The `td.` qualifier
+   keeps this ahead of `.smart-table-grid td { padding: 0 }` on specificity. */
+.smart-table-grid td.smart-table-td-first {
   position: relative;
-  /* Reserve a left lane for the row grip so it never overlaps cell content
-     (e.g. a date-time picker or text) in the first column. */
-  padding-left: 20px;
+  padding-left: 22px;
 }
 /* Keep the header (and filter row) first cell aligned with the body lane. */
 .smart-table-th-first .smart-table-th-inner {
-  padding-left: 20px;
+  padding-left: 22px;
 }
 .smart-table-filter-row .smart-table-th-first {
-  padding-left: 20px;
+  padding-left: 22px;
 }
+/* Notion-style row handle: faint dots in the reserved lane, appearing on row
+   hover, with a subtle highlight when you point at the handle itself. */
 .smart-table-row-grip {
   position: absolute;
-  left: 0;
-  top: 0;
-  height: 100%;
+  left: 1px;
+  top: 3px;
+  bottom: 3px;
   width: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-faint);
-  background: var(--background-primary);
+  border-radius: 4px;
   cursor: grab;
   opacity: 0;
   z-index: 2;
+  transition: opacity 80ms ease;
+}
+.smart-table-row-grip:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
 }
 .smart-table-row-grip:active {
   cursor: grabbing;

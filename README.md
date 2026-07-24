@@ -25,6 +25,14 @@ in Reading view and Live Preview.
 - **Add / remove rows** — **+ Row** in the toolbar or the **+ New row** strip at
   the bottom of the grid (no scrolling back up); delete a row by hovering it and
   clicking ✕, or right-click anywhere on the row → **Delete row**.
+- **Insert / duplicate / copy rows** — click a row's ⠿ grip (or right-click the
+  row) for a menu: **Insert row above / below**, **Duplicate row**, **Copy row**,
+  **Delete row**. Copy a row (or a Select-mode selection) and paste with
+  <kbd>Cmd/Ctrl</kbd>+<kbd>V</kbd> to append copies, or paste onto selected rows
+  to overwrite their values.
+- **Insert / duplicate columns** — a column's ▾ menu → **Insert column left /
+  right** (pick the new column's type) or **Duplicate column** (clones the type,
+  options, width, alignment, and every value).
 - **Safe deletes** — deleting a column always asks for confirmation, and so does
   deleting a row that has data; blank rows are removed instantly.
 - **Resize columns** — drag a column header's right edge; the width is saved
@@ -38,7 +46,8 @@ in Reading view and Live Preview.
 - **Column types** — Text, Number, Date, **Date & time**, Checkbox, Select,
   **Multi-select** (multiple tags per cell), and **Status** (colored pills; add
   your own options on the fly). Date & time sorts and filters as a true
-  timestamp.
+  timestamp. Changing a column's type converts existing values where it can, and
+  warns you (with a count) before clearing any that can't be converted.
 - **Edit options** — a Status/Select/Multi-select column's ▾ menu → **Edit
   options** lets you pick each option's color from a preset palette, rename it,
   or delete it.
@@ -63,8 +72,9 @@ Everything lives in the code block as a single line of JSON
 on one line means even a large table stays ~3 lines in the note, so Obsidian
 renders it right away instead of showing the raw source until you scroll.
 
-Edit through the interactive grid rather than by hand. (To inspect the raw JSON,
-place your cursor inside the block in Live Preview, or switch to Source mode.)
+Edit through the interactive grid rather than by hand. In Live Preview the block
+stays an interactive grid even when your cursor is inside it — no raw JSON flashes
+into view. (To inspect the raw JSON, switch to Source mode.)
 
 ## Install
 

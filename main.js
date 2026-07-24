@@ -76,7 +76,7 @@ const DEFAULT_COL_WIDTHS = {
 const FALLBACK_COL_WIDTH = 180;
 const MIN_COL_WIDTH = 60;
 const TRAILING_COL_WIDTH = 34; // the add-column / delete-row gutter
-const SELECT_COL_WIDTH = 34; // the leading checkbox gutter (selection mode)
+const SELECT_COL_WIDTH = 42; // the leading checkbox gutter (selection mode)
 
 function columnWidth(col) {
   const w = typeof col.width === "number" ? col.width : DEFAULT_COL_WIDTHS[col.type];
@@ -252,6 +252,27 @@ function defaultCell(type) {
   return "";
 }
 
+// Deep-clone a value so a duplicated/pasted cell shares no reference with its
+// source (arrays for multi-select, etc.).
+function cloneValue(v) {
+  return Array.isArray(v) ? v.slice() : v;
+}
+
+// A fresh row whose cells are copied from `cellsById`, with a new id — used by
+// Duplicate row and Paste. Only keeps values for columns that still exist.
+function rowFromCells(columns, cellsById) {
+  const cells = {};
+  columns.forEach((c) => {
+    cells[c.id] =
+      cellsById && c.id in cellsById ? cloneValue(cellsById[c.id]) : defaultCell(c.type);
+  });
+  return { id: uid("r"), cells };
+}
+
+// In-app clipboard for copied rows (module-level so you can paste into another
+// table). Stores plain cell maps keyed by column id.
+let rowClipboard = [];
+
 function addColumn(state, type) {
   const col = { id: uid("c"), name: "Column " + (state.columns.length + 1), type };
   if (type === "status") col.options = defaultStatusOptions();
@@ -265,6 +286,58 @@ function changeColumnType(col, type) {
   if (OPTION_TYPES.includes(type) && !Array.isArray(col.options)) {
     col.options = type === "status" ? defaultStatusOptions() : [];
   }
+}
+
+// Convert a single cell value from one column type to another. Returns
+// { value, ok }: ok=false means the (non-empty) value can't be represented in
+// the target type and the caller should treat it as lost. text is a universal
+// target; option types (select/status/multiselect) preserve values by turning
+// them into options.
+function convertValue(v, from, to) {
+  if (to === from) return { value: v, ok: true };
+  const empty = v == null || v === "" || (Array.isArray(v) && v.length === 0);
+  if (empty) return { value: defaultCell(to), ok: true };
+
+  const str =
+    v === true
+      ? "true"
+      : v === false
+      ? "false"
+      : Array.isArray(v)
+      ? v.join(", ")
+      : String(v);
+
+  if (to === "text") return { value: str, ok: true };
+  if (to === "number") {
+    const n = parseFloat(str);
+    return isNaN(n) ? { value: "", ok: false } : { value: String(n), ok: true };
+  }
+  if (to === "checkbox") {
+    const s = str.trim().toLowerCase();
+    if (["true", "yes", "1", "x", "[x]", "done", "checked"].includes(s))
+      return { value: true, ok: true };
+    if (["false", "no", "0", "[ ]", "[]", "unchecked"].includes(s))
+      return { value: false, ok: true };
+    return { value: false, ok: false };
+  }
+  if (to === "date") {
+    const m = str.trim().match(/^(\d{4}-\d{2}-\d{2})/);
+    return m ? { value: m[1], ok: true } : { value: "", ok: false };
+  }
+  if (to === "datetime") {
+    const dl = toDatetimeLocal(str);
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dl)) return { value: dl, ok: true };
+    const d = str.trim().match(/^(\d{4}-\d{2}-\d{2})$/);
+    if (d) return { value: d[1] + "T00:00", ok: true };
+    return { value: "", ok: false };
+  }
+  if (to === "select" || to === "status") {
+    return { value: Array.isArray(v) ? String(v[0] || "") : str, ok: true };
+  }
+  if (to === "multiselect") {
+    return { value: Array.isArray(v) ? v : str ? [str] : [], ok: true };
+  }
+  return { value: str, ok: true };
 }
 
 function addOption(col, label) {
@@ -732,7 +805,9 @@ function editOptions(app, col, rows, onChange) {
 // Rendering
 // ---------------------------------------------------------------------------
 
-function renderTable(app, source, el, ctx) {
+// `persistFn(state)` writes the edited state back to the note — either through
+// the Reading-view post-processor context or the Live-Preview editor.
+function renderTable(app, source, el, persistFn) {
   const parsed = parseState(source);
   el.empty();
   el.addClass("smart-table");
@@ -753,10 +828,14 @@ function renderTable(app, source, el, ctx) {
 
   // Rebuild the whole widget from `state`.
   const draw = () => build();
-  // Mutation entry point: redraw immediately, then write to disk.
+  // Persist without rebuilding — for value edits that update their own cell in
+  // place, so the table doesn't flicker or lose scroll on every keystroke.
+  const save = () => persistFn(state);
+  // Mutation entry point for structural changes (add/remove row or column,
+  // sort, filter, reorder, type change): rebuild, then write back.
   const commit = () => {
     build();
-    persist(app, ctx, el, state);
+    persistFn(state);
   };
 
   // Append a blank row and persist. Shared by the toolbar button and the
@@ -766,6 +845,143 @@ function renderTable(app, source, el, ctx) {
     state.columns.forEach((c) => (row.cells[c.id] = defaultCell(c.type)));
     state.rows.push(row);
     commit();
+  };
+
+  // Duplicate a single row: insert a clean copy directly below it (Notion-style).
+  const duplicateRow = (row) => {
+    const idx = state.rows.findIndex((r) => r.id === row.id);
+    const copy = rowFromCells(state.columns, row.cells);
+    state.rows.splice(idx < 0 ? state.rows.length : idx + 1, 0, copy);
+    commit();
+  };
+
+  // Duplicate a column: a clone (type, options, width, alignment) inserted just
+  // after the source, carrying every row's value.
+  const duplicateColumn = (col) => {
+    const idx = state.columns.findIndex((c) => c.id === col.id);
+    const nc = { id: uid("c"), name: (col.name || "Column") + " copy", type: col.type };
+    if (typeof col.width === "number") nc.width = col.width;
+    if (col.align) nc.align = col.align;
+    if (Array.isArray(col.options)) {
+      nc.options = col.options.map((o) => ({ label: o.label, color: o.color }));
+    }
+    state.columns.splice(idx < 0 ? state.columns.length : idx + 1, 0, nc);
+    state.rows.forEach((r) => (r.cells[nc.id] = cloneValue(r.cells[col.id])));
+    commit();
+  };
+
+  // Insert a fresh empty row directly above or below a given row. If a sort is
+  // active, bake it into manual order first so "above/below" matches what's on
+  // screen rather than the underlying storage order.
+  const insertRow = (row, below) => {
+    if (state.sort) {
+      const sc = state.columns.find((c) => c.id === state.sort.col);
+      if (sc) {
+        const dir = state.sort.dir === "desc" ? -1 : 1;
+        state.rows.sort(
+          (a, b) => dir * compareValues(a.cells[sc.id], b.cells[sc.id], sc.type)
+        );
+      }
+      state.sort = null;
+    }
+    const idx = state.rows.findIndex((r) => r.id === row.id);
+    const nr = { id: uid("r"), cells: {} };
+    state.columns.forEach((c) => (nr.cells[c.id] = defaultCell(c.type)));
+    state.rows.splice(idx < 0 ? state.rows.length : idx + (below ? 1 : 0), 0, nr);
+    commit();
+  };
+
+  // Insert a fresh empty column of the given type to the left or right of a
+  // column (matches the shape produced by addColumn).
+  const insertColumn = (col, after, type) => {
+    const idx = state.columns.findIndex((c) => c.id === col.id);
+    const nc = { id: uid("c"), name: "Column " + (state.columns.length + 1), type };
+    if (type === "status") nc.options = defaultStatusOptions();
+    if (type === "select" || type === "multiselect") nc.options = [];
+    state.columns.splice(idx < 0 ? state.columns.length : idx + (after ? 1 : 0), 0, nc);
+    state.rows.forEach((r) => (r.cells[nc.id] = defaultCell(type)));
+    commit();
+  };
+
+  // Copy the given rows into the in-app clipboard (plain cell maps).
+  const copyRows = (rows) => {
+    rowClipboard = rows.map((r) => {
+      const cells = {};
+      state.columns.forEach((c) => (cells[c.id] = cloneValue(r.cells[c.id])));
+      return cells;
+    });
+  };
+
+  // Paste clipboard rows as new rows appended to the table. Paste is one-shot:
+  // the clipboard is cleared afterwards, so the toolbar Paste button doesn't
+  // linger. Re-copy to paste again.
+  const pasteRows = () => {
+    if (!rowClipboard.length) return;
+    rowClipboard.forEach((cells) =>
+      state.rows.push(rowFromCells(state.columns, cells))
+    );
+    rowClipboard = [];
+    commit();
+  };
+
+  // ⌘V behaviour: if rows are selected, overwrite their values with the copied
+  // rows (matched 1:1, cycling the clipboard); otherwise append copies.
+  const pasteIntoSelection = () => {
+    if (!rowClipboard.length) return;
+    const targets = state.rows.filter((r) => selection.has(r.id));
+    if (!targets.length) {
+      pasteRows();
+      return;
+    }
+    targets.forEach((r, i) => {
+      const cells = rowClipboard[i % rowClipboard.length];
+      state.columns.forEach((c) => {
+        if (c.id in cells) r.cells[c.id] = cloneValue(cells[c.id]);
+      });
+    });
+    rowClipboard = [];
+    commit();
+  };
+
+  // Change a column's type, converting each cell's value where possible.
+  // Lossless conversions apply silently; if any non-empty value can't be
+  // converted, warn (with the count) before clearing those cells. Converting
+  // to an option type turns existing values into options so nothing is lost.
+  const changeType = (col, to) => {
+    if (to === col.type) return;
+    const from = col.type;
+    const results = state.rows.map((r) => convertValue(r.cells[col.id], from, to));
+    const lossy = state.rows.reduce((n, r, idx) => {
+      const v = r.cells[col.id];
+      const empty = v == null || v === "" || (Array.isArray(v) && !v.length);
+      return n + (!empty && !results[idx].ok ? 1 : 0);
+    }, 0);
+    const apply = () => {
+      changeColumnType(col, to);
+      state.rows.forEach((r, idx) => {
+        const val = results[idx].value;
+        if ((to === "select" || to === "status") && val) addOption(col, val);
+        if (to === "multiselect") asTags(val).forEach((tag) => addOption(col, tag));
+        r.cells[col.id] = val;
+      });
+      commit();
+    };
+    if (lossy > 0) {
+      confirmAction(
+        app,
+        "Change column type?",
+        lossy +
+          " value" +
+          (lossy === 1 ? "" : "s") +
+          " can't be converted to " +
+          TYPE_LABELS[to] +
+          " and will be cleared. Other values are converted automatically.",
+        "Change type",
+        apply
+      );
+    } else {
+      apply();
+    }
   };
 
   function openTypeMenu(evt, cb) {
@@ -818,10 +1034,7 @@ function renderTable(app, source, el, ctx) {
         i
           .setTitle(TYPE_LABELS[t])
           .setIcon(col.type === t ? "check" : typeIcon(t))
-          .onClick(() => {
-            changeColumnType(col, t);
-            commit();
-          })
+          .onClick(() => changeType(col, t))
       )
     );
     menu.addSeparator();
@@ -865,6 +1078,35 @@ function renderTable(app, source, el, ctx) {
           .onClick(() => editOptions(app, col, state.rows, commit))
       );
     }
+    // Insert a new column immediately left/right of this one, picking its type
+    // from a submenu (falls back to a Text column on older Obsidian builds).
+    [
+      ["Insert column left", false, "arrow-left"],
+      ["Insert column right", true, "arrow-right"],
+    ].forEach(([title, after, icon]) => {
+      menu.addItem((parent) => {
+        parent.setTitle(title).setIcon(icon);
+        if (typeof parent.setSubmenu === "function") {
+          const sub = parent.setSubmenu();
+          COLUMN_TYPES.forEach((t) =>
+            sub.addItem((s) =>
+              s
+                .setTitle(TYPE_LABELS[t])
+                .setIcon(typeIcon(t))
+                .onClick(() => insertColumn(col, after, t))
+            )
+          );
+        } else {
+          parent.onClick(() => insertColumn(col, after, "text"));
+        }
+      });
+    });
+    menu.addItem((i) =>
+      i
+        .setTitle("Duplicate column")
+        .setIcon("copy")
+        .onClick(() => duplicateColumn(col))
+    );
     menu.addItem((i) =>
       i
         .setTitle("Rename…")
@@ -910,17 +1152,19 @@ function renderTable(app, source, el, ctx) {
     menu.showAtMouseEvent(evt);
   }
 
-  function openSelectMenu(evt, col, row) {
+  function openSelectMenu(evt, col, row, refresh) {
+    const set = (value) => {
+      row.cells[col.id] = value;
+      refresh();
+      save();
+    };
     const menu = new Menu();
     (col.options || []).forEach((o) =>
       menu.addItem((i) =>
         i
           .setTitle(o.label)
           .setIcon(row.cells[col.id] === o.label ? "check" : "circle")
-          .onClick(() => {
-            row.cells[col.id] = o.label;
-            commit();
-          })
+          .onClick(() => set(o.label))
       )
     );
     if (col.options && col.options.length) menu.addSeparator();
@@ -928,10 +1172,7 @@ function renderTable(app, source, el, ctx) {
       i
         .setTitle("Clear")
         .setIcon("x")
-        .onClick(() => {
-          row.cells[col.id] = "";
-          commit();
-        })
+        .onClick(() => set(""))
     );
     menu.addItem((i) =>
       i
@@ -941,8 +1182,7 @@ function renderTable(app, source, el, ctx) {
           promptText(app, "New option", "", (label) => {
             if (label) {
               addOption(col, label);
-              row.cells[col.id] = label;
-              commit();
+              set(label);
             }
           })
         )
@@ -958,7 +1198,12 @@ function renderTable(app, source, el, ctx) {
 
   // Add-a-tag menu for a multi-select cell: lists options not already on the
   // row (toggling one on), plus create/edit-options entries.
-  function openMultiAddMenu(evt, col, row) {
+  function openMultiAddMenu(evt, col, row, refresh) {
+    const addTag = (label) => {
+      row.cells[col.id] = asTags(row.cells[col.id]).concat(label);
+      refresh();
+      save();
+    };
     const menu = new Menu();
     const cur = asTags(row.cells[col.id]);
     const remaining = (col.options || []).filter((o) => !cur.includes(o.label));
@@ -967,10 +1212,7 @@ function renderTable(app, source, el, ctx) {
         i
           .setTitle(o.label)
           .setIcon("plus")
-          .onClick(() => {
-            row.cells[col.id] = asTags(row.cells[col.id]).concat(o.label);
-            commit();
-          })
+          .onClick(() => addTag(o.label))
       )
     );
     if (!remaining.length) {
@@ -985,8 +1227,7 @@ function renderTable(app, source, el, ctx) {
           promptText(app, "New option", "", (label) => {
             if (label) {
               addOption(col, label);
-              row.cells[col.id] = asTags(row.cells[col.id]).concat(label);
-              commit();
+              addTag(label);
             }
           })
         )
@@ -1074,12 +1315,18 @@ function renderTable(app, source, el, ctx) {
     // text-align is inherited, so setting it on the cell aligns inputs, the
     // textarea's text, pills, and the checkbox alike.
     if (col.align) td.style.textAlign = col.align;
+    // Re-render just this cell (no full table rebuild) — used after value
+    // edits so the table doesn't flicker or lose scroll position.
+    const refresh = () => {
+      td.empty();
+      renderCell(td, col, row);
+    };
     if (col.type === "checkbox") {
       const cb = td.createEl("input", { attr: { type: "checkbox" } });
       cb.checked = val === true || val === "true";
       cb.onchange = () => {
         row.cells[col.id] = cb.checked;
-        commit();
+        save();
       };
     } else if (col.type === "select" || col.type === "status") {
       const opt = (col.options || []).find((o) => o.label === val);
@@ -1093,7 +1340,7 @@ function renderTable(app, source, el, ctx) {
         pill.addClass("smart-table-pill-empty");
         pill.setText("Empty");
       }
-      pill.onclick = (e) => openSelectMenu(e, col, row);
+      pill.onclick = (e) => openSelectMenu(e, col, row, refresh);
     } else if (col.type === "multiselect") {
       const tags = asTags(val);
       const box = td.createDiv({ cls: "smart-table-tags" });
@@ -1110,13 +1357,14 @@ function renderTable(app, source, el, ctx) {
         x.onclick = (e) => {
           e.stopPropagation();
           row.cells[col.id] = asTags(row.cells[col.id]).filter((t) => t !== label);
-          commit();
+          refresh();
+          save();
         };
       });
       const add = box.createDiv({ cls: "smart-table-tag-add" });
       setIcon(add, "plus");
       add.setAttr("aria-label", "Add tag");
-      add.onclick = (e) => openMultiAddMenu(e, col, row);
+      add.onclick = (e) => openMultiAddMenu(e, col, row, refresh);
     } else if (
       col.type === "number" ||
       col.type === "date" ||
@@ -1132,7 +1380,7 @@ function renderTable(app, source, el, ctx) {
         val == null ? "" : col.type === "datetime" ? toDatetimeLocal(val) : val;
       inp.onchange = () => {
         row.cells[col.id] = inp.value;
-        commit();
+        save();
       };
     } else {
       // Text uses an auto-growing textarea so long content wraps onto new
@@ -1149,7 +1397,7 @@ function renderTable(app, source, el, ctx) {
       ta.addEventListener("input", autosize);
       ta.onchange = () => {
         row.cells[col.id] = ta.value;
-        commit();
+        save();
       };
       // Size to existing content once the cell is in the DOM.
       window.setTimeout(autosize, 0);
@@ -1157,6 +1405,11 @@ function renderTable(app, source, el, ctx) {
   }
 
   function build() {
+    // Preserve the grid's scroll position across the full rebuild, so setting
+    // a value in an off-screen column doesn't snap the table back to the left.
+    const prevWrap = el.querySelector(".smart-table-wrap");
+    const keepScrollLeft = prevWrap ? prevWrap.scrollLeft : 0;
+    const keepScrollTop = prevWrap ? prevWrap.scrollTop : 0;
     el.empty();
     el.addClass("smart-table");
 
@@ -1182,6 +1435,9 @@ function renderTable(app, source, el, ctx) {
     filterBtn.createSpan({ text: "Filter" });
     filterBtn.onclick = () => {
       state.showFilters = !state.showFilters;
+      // Hiding the filter row returns to the normal (unfiltered) view — clear
+      // any active filters so rows aren't left filtered by a hidden control.
+      if (!state.showFilters) state.filters = {};
       commit();
     };
 
@@ -1191,15 +1447,38 @@ function renderTable(app, source, el, ctx) {
     csvBtn.setAttr("aria-label", "Export this table to CSV");
     csvBtn.onclick = () => exportTableCSV(state);
 
+    // Paste appears only when rows have been copied (possibly from another table).
+    if (rowClipboard.length) {
+      const pasteBtn = bar.createEl("button", { cls: "smart-table-btn" });
+      setIcon(pasteBtn.createSpan(), "clipboard-paste");
+      pasteBtn.createSpan({
+        text: "Paste " + rowClipboard.length + " row" + (rowClipboard.length === 1 ? "" : "s"),
+      });
+      pasteBtn.setAttr("aria-label", "Paste copied rows");
+      pasteBtn.onclick = pasteRows;
+    }
+
     const selectBtn = bar.createEl("button", { cls: "smart-table-btn" });
     if (selecting) selectBtn.addClass("is-active");
     setIcon(selectBtn.createSpan(), "check-square");
     selectBtn.createSpan({ text: "Select" });
     selectBtn.setAttr("aria-label", "Select rows for bulk actions");
     selectBtn.onclick = () => {
+      // Toggling adds/removes the leading checkbox column; keep the same data
+      // columns in view by shifting scroll by that column's width.
+      const w = el.querySelector(".smart-table-wrap");
+      const sx = w ? w.scrollLeft : 0;
+      const entering = !selecting;
       selecting = !selecting;
       if (!selecting) selection.clear();
       draw();
+      const nw = el.querySelector(".smart-table-wrap");
+      if (nw) {
+        nw.scrollLeft = Math.max(
+          0,
+          sx + (entering ? SELECT_COL_WIDTH : -SELECT_COL_WIDTH)
+        );
+      }
     };
 
     const shown = viewRows(state);
@@ -1226,6 +1505,16 @@ function renderTable(app, source, el, ctx) {
         else b.onclick = fn;
         return b;
       };
+      act("Duplicate", "copy", "Duplicate selected rows", () => {
+        selectedRows().forEach((r) =>
+          state.rows.push(rowFromCells(state.columns, r.cells))
+        );
+        commit();
+      });
+      act("Copy", "clipboard-copy", "Copy selected rows", () => {
+        copyRows(selectedRows());
+        draw(); // reveal the Paste button in the toolbar
+      });
       act("Export", "download", "Export selected rows to CSV", () =>
         exportRowsCSV(state.columns, selectedRows(), "smart-table-selection.csv")
       );
@@ -1469,6 +1758,30 @@ function renderTable(app, source, el, ctx) {
       );
     };
 
+    // Row actions menu, shared by the grip click and right-click. Notion-style:
+    // insert above/below, duplicate, copy, delete.
+    const openRowMenu = (evt, row) => {
+      const menu = new Menu();
+      menu.addItem((i) =>
+        i.setTitle("Insert row above").setIcon("arrow-up").onClick(() => insertRow(row, false))
+      );
+      menu.addItem((i) =>
+        i.setTitle("Insert row below").setIcon("arrow-down").onClick(() => insertRow(row, true))
+      );
+      menu.addSeparator();
+      menu.addItem((i) =>
+        i.setTitle("Duplicate row").setIcon("copy").onClick(() => duplicateRow(row))
+      );
+      menu.addItem((i) =>
+        i.setTitle("Copy row").setIcon("clipboard-copy").onClick(() => copyRows([row]))
+      );
+      menu.addSeparator();
+      menu.addItem((i) =>
+        i.setTitle("Delete row").setIcon("trash").onClick(() => deleteRow(row))
+      );
+      menu.showAtMouseEvent(evt);
+    };
+
     // Bulk actions on the current selection.
     const deleteSelected = (targets) => {
       const ids = new Set(targets.map((r) => r.id));
@@ -1502,19 +1815,13 @@ function renderTable(app, source, el, ctx) {
     }
     shown.forEach((row) => {
       const tr = tbody.createEl("tr");
-      if (selecting && selection.has(row.id)) tr.addClass("smart-table-row-selected");
-      // Right-click anywhere on the row to delete it — reachable without
+      tr.dataset.rowId = row.id;
+      if (selection.has(row.id)) tr.addClass("smart-table-row-selected");
+      // Right-click anywhere on the row for its actions — reachable without
       // scrolling to the row's ✕ when the table has many columns.
       tr.oncontextmenu = (e) => {
         e.preventDefault();
-        const menu = new Menu();
-        menu.addItem((i) =>
-          i
-            .setTitle("Delete row")
-            .setIcon("trash")
-            .onClick(() => deleteRow(row))
-        );
-        menu.showAtMouseEvent(e);
+        openRowMenu(e, row);
       };
       // Drop target for row reorder.
       tr.addEventListener("dragover", (e) => {
@@ -1561,7 +1868,14 @@ function renderTable(app, source, el, ctx) {
       if (firstTd) {
         const grip = firstTd.createDiv({ cls: "smart-table-row-grip" });
         setIcon(grip, "grip-vertical");
-        grip.setAttr("aria-label", "Drag to reorder row");
+        grip.setAttr("aria-label", "Click for row actions · drag to reorder");
+        // Click (no drag) opens the row-actions menu (insert above/below,
+        // duplicate, copy, delete), Notion-style.
+        grip.onclick = (e) => {
+          e.stopPropagation();
+          e.preventDefault();
+          openRowMenu(e, row);
+        };
         grip.draggable = true;
         grip.addEventListener("dragstart", (e) => {
           bakeSortThenClear();
@@ -1596,7 +1910,29 @@ function renderTable(app, source, el, ctx) {
     addInner.createSpan({ text: "New row" });
     addTd.setAttr("aria-label", "Add a row");
     addTd.onclick = appendRow;
+
+    // Restore the scroll position captured before the rebuild.
+    if (keepScrollLeft || keepScrollTop) {
+      wrap.scrollLeft = keepScrollLeft;
+      wrap.scrollTop = keepScrollTop;
+    }
   }
+
+  // Keyboard copy/paste of whole rows. Registered once on the container (which
+  // is made focusable); a grip click focuses it so ⌘C/⌘V land here.
+  el.tabIndex = -1;
+  el.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+    const k = e.key.toLowerCase();
+    if (k === "c" && selection.size) {
+      copyRows(state.rows.filter((r) => selection.has(r.id)));
+      draw(); // reveal the toolbar Paste button
+      e.preventDefault();
+    } else if (k === "v" && rowClipboard.length) {
+      pasteIntoSelection();
+      e.preventDefault();
+    }
+  });
 
   build();
 }
@@ -1616,11 +1952,187 @@ function insertTableBlock(editor) {
   editor.setCursor({ line: cur.line + added, ch: 0 });
 }
 
+const FENCE_OPEN = /^`{3,}\s*smart-table\s*$/;
+const FENCE_CLOSE = /^`{3,}\s*$/;
+
+// Rewrite the smart-table block that contains the widget `el` with `state`,
+// by dispatching a CodeMirror change (the Live-Preview counterpart to the
+// Reading-view persist()). `annotation` tags the change as our own so the
+// decoration field can keep the existing widget instead of rebuilding it
+// (which would reset the table's scroll position).
+function persistToEditor(view, el, state, annotation) {
+  let pos;
+  try {
+    pos = view.posAtDOM(el);
+  } catch (e) {
+    return;
+  }
+  const doc = view.state.doc;
+  const startLine = doc.lineAt(pos).number;
+  let open = null;
+  for (let i = startLine; i >= 1; i--) {
+    if (FENCE_OPEN.test(doc.line(i).text)) {
+      open = i;
+      break;
+    }
+    if (i !== startLine && FENCE_CLOSE.test(doc.line(i).text)) break;
+  }
+  if (open == null) return;
+  let close = null;
+  for (let i = open + 1; i <= doc.lines; i++) {
+    if (FENCE_CLOSE.test(doc.line(i).text)) {
+      close = i;
+      break;
+    }
+  }
+  if (close == null) return;
+  // Replace only the JSON *between* the fences, leaving the fence lines
+  // untouched. That keeps the widget decoration's boundaries stable so the
+  // field can map (not rebuild) it — no widget recreation, no flicker.
+  const json = JSON.stringify(state);
+  const hasBody = close - 1 >= open + 1;
+  const changes = hasBody
+    ? { from: doc.line(open + 1).from, to: doc.line(close - 1).to, insert: json }
+    : { from: doc.line(open).to, to: doc.line(open).to, insert: "\n" + json };
+  const spec = { changes };
+  if (annotation) spec.annotations = annotation;
+  view.dispatch(spec);
+}
+
+// A CodeMirror 6 editor extension that, in Live Preview, replaces each
+// smart-table fenced block with the interactive table widget — so the raw JSON
+// is never revealed when the cursor enters the block. Reading view keeps using
+// the markdown code-block processor. Returns null if the CM6 modules aren't
+// available (older Obsidian), leaving Reading view unaffected.
+function smartTableEditorExtension(plugin) {
+  let cmView, cmState, obs;
+  try {
+    cmView = require("@codemirror/view");
+    cmState = require("@codemirror/state");
+    obs = require("obsidian");
+  } catch (e) {
+    console.warn("[SmartTable] CM6 modules unavailable — Live Preview falls back to the code-block processor.", e);
+    return null;
+  }
+  const { EditorView, Decoration, WidgetType } = cmView;
+  const { StateField, Annotation, Prec } = cmState;
+  const livePreviewField = obs.editorLivePreviewField;
+  // Marks changes made by the widget itself (a cell edit writing JSON back), so
+  // the field maps the existing decorations instead of rebuilding the widget —
+  // which would recreate the DOM and reset the table's scroll position.
+  const selfEdit = Annotation.define();
+
+  class SmartTableWidget extends WidgetType {
+    constructor(source) {
+      super();
+      this.source = source;
+    }
+    eq(other) {
+      return other.source === this.source;
+    }
+    toDOM(view) {
+      const el = document.createElement("div");
+      el.className = "smart-table smart-table-lp";
+      el.setAttribute("contenteditable", "false");
+      renderTable(plugin.app, this.source, el, (state) =>
+        persistToEditor(view, el, state, selfEdit.of(true))
+      );
+      return el;
+    }
+    ignoreEvent() {
+      return true; // let the table's own inputs/menus handle events
+    }
+  }
+
+  const buildDecos = (state) => {
+    if (livePreviewField && !state.field(livePreviewField, false)) {
+      return Decoration.none;
+    }
+    const doc = state.doc;
+    const ranges = [];
+    let i = 1;
+    while (i <= doc.lines) {
+      if (FENCE_OPEN.test(doc.line(i).text)) {
+        let close = null;
+        for (let j = i + 1; j <= doc.lines; j++) {
+          if (FENCE_CLOSE.test(doc.line(j).text)) {
+            close = j;
+            break;
+          }
+        }
+        if (close != null) {
+          const src =
+            close - 1 >= i + 1
+              ? doc.sliceString(doc.line(i + 1).from, doc.line(close - 1).to)
+              : "";
+          ranges.push(
+            Decoration.replace({
+              widget: new SmartTableWidget(src),
+              block: true,
+            }).range(doc.line(i).from, doc.line(close).to)
+          );
+          i = close + 1;
+          continue;
+        }
+      }
+      i++;
+    }
+    return Decoration.set(ranges, true);
+  };
+
+  const field = StateField.define({
+    create: (state) => buildDecos(state),
+    update: (deco, tr) => {
+      // Our own cell edits: keep the existing widget (the DOM was already
+      // updated in place, with scroll preserved) — just map its range.
+      if (tr.annotation(selfEdit) !== undefined) return deco.map(tr.changes);
+      const lpChanged =
+        livePreviewField &&
+        tr.startState.field(livePreviewField, false) !==
+          tr.state.field(livePreviewField, false);
+      if (tr.docChanged || lpChanged) return buildDecos(tr.state);
+      return deco.map(tr.changes);
+    },
+    provide: (f) => [
+      EditorView.decorations.from(f),
+      EditorView.atomicRanges.of((v) => v.state.field(f) || Decoration.none),
+    ],
+  });
+  // Highest precedence so our block widget outranks Obsidian's built-in
+  // code-block rendering for the same range (otherwise the widget never
+  // renders and the plain processor shows through — the source of the flicker).
+  return Prec ? Prec.highest(field) : field;
+}
+
 module.exports = class SmartTablePlugin extends Plugin {
   onload() {
-    this.registerMarkdownCodeBlockProcessor("smart-table", (source, el, ctx) => {
-      renderTable(this.app, source, el, ctx);
+    // Reading view only: a generic post-processor (which does NOT fire in Live
+    // Preview) so it never makes Obsidian "own" the code block in the editor —
+    // leaving Live Preview entirely to the CodeMirror widget below. Using
+    // registerMarkdownCodeBlockProcessor instead would force Obsidian to render
+    // the block in Live Preview and outrank the widget.
+    this.registerMarkdownPostProcessor((el, ctx) => {
+      if (el.closest(".markdown-source-view")) return; // safety: skip editor
+      el.querySelectorAll("pre > code.language-smart-table").forEach((code) => {
+        const pre = code.parentElement;
+        const source = code.textContent || "";
+        const container = document.createElement("div");
+        pre.replaceWith(container);
+        renderTable(this.app, source, container, (state) =>
+          persist(this.app, ctx, container, state)
+        );
+      });
     });
+
+    // Live Preview: render the table as a persistent editor widget so the raw
+    // JSON isn't exposed when the cursor enters the block. Guarded so a CM6
+    // incompatibility can't break Reading view.
+    try {
+      const ext = smartTableEditorExtension(this);
+      if (ext) this.registerEditorExtension(ext);
+    } catch (e) {
+      console.error("[SmartTable] Live Preview extension failed to load", e);
+    }
 
     this.addCommand({
       id: "insert-smart-table",
