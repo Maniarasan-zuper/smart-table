@@ -1,6 +1,6 @@
 "use strict";
 
-const { Plugin, Menu, Modal, Notice, setIcon } = require("obsidian");
+const { Plugin, Menu, Modal, Notice, MarkdownView, setIcon } = require("obsidian");
 
 // ---------------------------------------------------------------------------
 // Data model helpers
@@ -26,6 +26,7 @@ const COLUMN_TYPES = [
   "datetime",
   "checkbox",
   "select",
+  "multiselect",
   "status",
 ];
 const TYPE_LABELS = {
@@ -35,8 +36,18 @@ const TYPE_LABELS = {
   datetime: "Date & time",
   checkbox: "Checkbox",
   select: "Select",
+  multiselect: "Multi-select",
   status: "Status",
 };
+
+// Column types whose cells hold one or more chosen options (with colors).
+const OPTION_TYPES = ["select", "multiselect", "status"];
+
+// A multi-select cell stores an array of labels; coerce any stored value to one.
+function asTags(v) {
+  if (Array.isArray(v)) return v.slice();
+  return v == null || v === "" ? [] : [String(v)];
+}
 
 // Normalize a date-time string to the value an <input type="datetime-local">
 // expects (YYYY-MM-DDTHH:mm), accepting either a space or "T" separator and an
@@ -59,11 +70,13 @@ const DEFAULT_COL_WIDTHS = {
   number: 110,
   status: 150,
   select: 150,
+  multiselect: 200,
   text: 220,
 };
 const FALLBACK_COL_WIDTH = 180;
 const MIN_COL_WIDTH = 60;
 const TRAILING_COL_WIDTH = 34; // the add-column / delete-row gutter
+const SELECT_COL_WIDTH = 34; // the leading checkbox gutter (selection mode)
 
 function columnWidth(col) {
   const w = typeof col.width === "number" ? col.width : DEFAULT_COL_WIDTHS[col.type];
@@ -95,6 +108,7 @@ function typeIcon(t) {
       datetime: "calendar-clock",
       checkbox: "check-square",
       select: "chevron-down-circle",
+      multiselect: "tags",
       status: "circle-dot",
     }[t] || "text"
   );
@@ -185,6 +199,9 @@ function matchesFilter(col, raw, fv) {
   if (col.type === "select" || col.type === "status") {
     return (raw == null ? "" : String(raw)) === fv;
   }
+  if (col.type === "multiselect") {
+    return asTags(raw).includes(fv);
+  }
   if (col.type === "number") {
     const [minS, maxS] = splitPair(fv);
     if (minS === "" && maxS === "") return true;
@@ -229,17 +246,23 @@ function viewRows(state) {
   return rows;
 }
 
+function defaultCell(type) {
+  if (type === "checkbox") return false;
+  if (type === "multiselect") return [];
+  return "";
+}
+
 function addColumn(state, type) {
   const col = { id: uid("c"), name: "Column " + (state.columns.length + 1), type };
   if (type === "status") col.options = defaultStatusOptions();
-  if (type === "select") col.options = [];
+  if (type === "select" || type === "multiselect") col.options = [];
   state.columns.push(col);
-  state.rows.forEach((r) => (r.cells[col.id] = type === "checkbox" ? false : ""));
+  state.rows.forEach((r) => (r.cells[col.id] = defaultCell(type)));
 }
 
 function changeColumnType(col, type) {
   col.type = type;
-  if ((type === "status" || type === "select") && !Array.isArray(col.options)) {
+  if (OPTION_TYPES.includes(type) && !Array.isArray(col.options)) {
     col.options = type === "status" ? defaultStatusOptions() : [];
   }
 }
@@ -313,20 +336,21 @@ async function persist(app, ctx, el, state) {
 // Export the table (as currently sorted/filtered) to a downloaded CSV file.
 // ---------------------------------------------------------------------------
 
-function exportTableCSV(state) {
+function exportRowsCSV(columns, rows, filename) {
   // RFC 4180 quoting: wrap fields containing quotes, commas, or newlines.
   const esc = (v) => {
     const s = v == null ? "" : String(v);
     return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
   };
-  const lines = [state.columns.map((c) => esc(c.name)).join(",")];
-  viewRows(state).forEach((row) => {
+  const lines = [columns.map((c) => esc(c.name)).join(",")];
+  rows.forEach((row) => {
     lines.push(
-      state.columns
+      columns
         .map((c) => {
           const v = row.cells[c.id];
           if (c.type === "checkbox") return esc(v === true || v === "true");
           if (c.type === "datetime") return esc(v ? String(v).replace("T", " ") : "");
+          if (c.type === "multiselect") return esc(asTags(v).join(", "));
           return esc(v);
         })
         .join(",")
@@ -339,11 +363,15 @@ function exportTableCSV(state) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "smart-table.csv";
+  a.download = filename || "smart-table.csv";
   document.body.appendChild(a);
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function exportTableCSV(state) {
+  exportRowsCSV(state.columns, viewRows(state), "smart-table.csv");
 }
 
 // ---------------------------------------------------------------------------
@@ -617,7 +645,12 @@ class OptionsModal extends Modal {
         const old = opt.label;
         opt.label = v;
         rows.forEach((r) => {
-          if (String(r.cells[col.id]) === old) r.cells[col.id] = v;
+          const cur = r.cells[col.id];
+          if (Array.isArray(cur)) {
+            r.cells[col.id] = cur.map((t) => (t === old ? v : t));
+          } else if (String(cur) === old) {
+            r.cells[col.id] = v;
+          }
         });
         onChange();
       };
@@ -634,7 +667,12 @@ class OptionsModal extends Modal {
       del.onclick = () => {
         col.options = (col.options || []).filter((o) => o !== opt);
         rows.forEach((r) => {
-          if (String(r.cells[col.id]) === opt.label) r.cells[col.id] = "";
+          const cur = r.cells[col.id];
+          if (Array.isArray(cur)) {
+            r.cells[col.id] = cur.filter((t) => t !== opt.label);
+          } else if (String(cur) === opt.label) {
+            r.cells[col.id] = "";
+          }
         });
         onChange();
         renderList();
@@ -706,6 +744,11 @@ function renderTable(app, source, el, ctx) {
   }
   const state = parsed;
 
+  // Row-selection state (transient UI, never persisted to the block). Lives
+  // across rebuilds within a single render.
+  let selecting = false;
+  const selection = new Set();
+
   // Rebuild the whole widget from `state`.
   const draw = () => build();
   // Mutation entry point: redraw immediately, then write to disk.
@@ -718,9 +761,7 @@ function renderTable(app, source, el, ctx) {
   // "+ New row" footer at the bottom of the grid.
   const appendRow = () => {
     const row = { id: uid("r"), cells: {} };
-    state.columns.forEach(
-      (c) => (row.cells[c.id] = c.type === "checkbox" ? false : "")
-    );
+    state.columns.forEach((c) => (row.cells[c.id] = defaultCell(c.type)));
     state.rows.push(row);
     commit();
   };
@@ -814,7 +855,7 @@ function renderTable(app, source, el, ctx) {
       }
     });
     menu.addSeparator();
-    if (col.type === "status" || col.type === "select") {
+    if (OPTION_TYPES.includes(col.type)) {
       menu.addItem((i) =>
         i
           .setTitle("Edit options…")
@@ -913,6 +954,50 @@ function renderTable(app, source, el, ctx) {
     menu.showAtMouseEvent(evt);
   }
 
+  // Add-a-tag menu for a multi-select cell: lists options not already on the
+  // row (toggling one on), plus create/edit-options entries.
+  function openMultiAddMenu(evt, col, row) {
+    const menu = new Menu();
+    const cur = asTags(row.cells[col.id]);
+    const remaining = (col.options || []).filter((o) => !cur.includes(o.label));
+    remaining.forEach((o) =>
+      menu.addItem((i) =>
+        i
+          .setTitle(o.label)
+          .setIcon("plus")
+          .onClick(() => {
+            row.cells[col.id] = asTags(row.cells[col.id]).concat(o.label);
+            commit();
+          })
+      )
+    );
+    if (!remaining.length) {
+      menu.addItem((i) => i.setTitle("All options added").setDisabled(true));
+    }
+    menu.addSeparator();
+    menu.addItem((i) =>
+      i
+        .setTitle("New option…")
+        .setIcon("plus")
+        .onClick(() =>
+          promptText(app, "New option", "", (label) => {
+            if (label) {
+              addOption(col, label);
+              row.cells[col.id] = asTags(row.cells[col.id]).concat(label);
+              commit();
+            }
+          })
+        )
+    );
+    menu.addItem((i) =>
+      i
+        .setTitle("Edit options…")
+        .setIcon("palette")
+        .onClick(() => editOptions(app, col, state.rows, commit))
+    );
+    menu.showAtMouseEvent(evt);
+  }
+
   function setFilter(col, value) {
     if (value) state.filters[col.id] = value;
     else delete state.filters[col.id];
@@ -933,7 +1018,11 @@ function renderTable(app, source, el, ctx) {
         if (v === cur) o.selected = true;
       });
       sel.onchange = () => setFilter(col, sel.value);
-    } else if (col.type === "select" || col.type === "status") {
+    } else if (
+      col.type === "select" ||
+      col.type === "status" ||
+      col.type === "multiselect"
+    ) {
       const sel = fth.createEl("select", { cls: "smart-table-filter-input" });
       const any = sel.createEl("option", { text: "Any" });
       any.value = "";
@@ -1003,6 +1092,29 @@ function renderTable(app, source, el, ctx) {
         pill.setText("Empty");
       }
       pill.onclick = (e) => openSelectMenu(e, col, row);
+    } else if (col.type === "multiselect") {
+      const tags = asTags(val);
+      const box = td.createDiv({ cls: "smart-table-tags" });
+      tags.forEach((label) => {
+        const opt = (col.options || []).find((o) => o.label === label);
+        const c = PALETTE[opt ? opt.color : "gray"] || PALETTE.gray;
+        const pill = box.createDiv({ cls: "smart-table-pill smart-table-tag" });
+        pill.style.background = c[0];
+        pill.style.color = c[1];
+        pill.createSpan({ text: label });
+        const x = pill.createSpan({ cls: "smart-table-tag-x" });
+        setIcon(x, "x");
+        x.setAttr("aria-label", "Remove " + label);
+        x.onclick = (e) => {
+          e.stopPropagation();
+          row.cells[col.id] = asTags(row.cells[col.id]).filter((t) => t !== label);
+          commit();
+        };
+      });
+      const add = box.createDiv({ cls: "smart-table-tag-add" });
+      setIcon(add, "plus");
+      add.setAttr("aria-label", "Add tag");
+      add.onclick = (e) => openMultiAddMenu(e, col, row);
     } else if (
       col.type === "number" ||
       col.type === "date" ||
@@ -1077,11 +1189,57 @@ function renderTable(app, source, el, ctx) {
     csvBtn.setAttr("aria-label", "Export this table to CSV");
     csvBtn.onclick = () => exportTableCSV(state);
 
+    const selectBtn = bar.createEl("button", { cls: "smart-table-btn" });
+    if (selecting) selectBtn.addClass("is-active");
+    setIcon(selectBtn.createSpan(), "check-square");
+    selectBtn.createSpan({ text: "Select" });
+    selectBtn.setAttr("aria-label", "Select rows for bulk actions");
+    selectBtn.onclick = () => {
+      selecting = !selecting;
+      if (!selecting) selection.clear();
+      draw();
+    };
+
     const shown = viewRows(state);
     bar.createDiv({
       cls: "smart-table-count",
       text: shown.length + " of " + state.rows.length,
     });
+
+    // Selection action bar (only while selecting).
+    const selectedRows = () => shown.filter((r) => selection.has(r.id));
+    if (selecting) {
+      const sel = el.createDiv({ cls: "smart-table-selbar" });
+      const n = selectedRows().length;
+      sel.createSpan({
+        cls: "smart-table-selcount",
+        text: n + " selected",
+      });
+      const act = (label, icon, aria, fn) => {
+        const b = sel.createEl("button", { cls: "smart-table-btn" });
+        setIcon(b.createSpan(), icon);
+        b.createSpan({ text: label });
+        b.setAttr("aria-label", aria);
+        if (!n) b.setAttr("disabled", "true");
+        else b.onclick = fn;
+        return b;
+      };
+      act("Export", "download", "Export selected rows to CSV", () =>
+        exportRowsCSV(state.columns, selectedRows(), "smart-table-selection.csv")
+      );
+      act("Delete", "trash", "Delete selected rows", () =>
+        deleteSelected(selectedRows())
+      );
+      const done = sel.createEl("button", { cls: "smart-table-btn" });
+      setIcon(done.createSpan(), "x");
+      done.createSpan({ text: "Done" });
+      done.setAttr("aria-label", "Exit selection");
+      done.onclick = () => {
+        selecting = false;
+        selection.clear();
+        draw();
+      };
+    }
 
     // Table ---------------------------------------------------------------
     const wrap = el.createDiv({ cls: "smart-table-wrap" });
@@ -1089,11 +1247,16 @@ function renderTable(app, source, el, ctx) {
 
     // Fixed layout driven by an explicit colgroup: column widths are honoured
     // exactly (so they can be dragged) and the overall table width is the sum,
-    // letting the wrapper scroll horizontally when needed.
+    // letting the wrapper scroll horizontally when needed. A leading checkbox
+    // column is added only while selecting.
+    const leadWidth = selecting ? SELECT_COL_WIDTH : 0;
     const sumWidth = () =>
-      state.columns.reduce((s, c) => s + columnWidth(c), 0) + TRAILING_COL_WIDTH;
+      state.columns.reduce((s, c) => s + columnWidth(c), 0) +
+      TRAILING_COL_WIDTH +
+      leadWidth;
     table.style.width = sumWidth() + "px";
     const colgroup = table.createEl("colgroup");
+    if (selecting) colgroup.createEl("col").style.width = SELECT_COL_WIDTH + "px";
     const colEls = state.columns.map((col) => {
       const cl = colgroup.createEl("col");
       cl.style.width = columnWidth(col) + "px";
@@ -1117,7 +1280,10 @@ function renderTable(app, source, el, ctx) {
           state.columns.reduce(
             (s, c, i) => s + (i === index ? width : columnWidth(c)),
             0
-          ) + TRAILING_COL_WIDTH + "px";
+          ) +
+          TRAILING_COL_WIDTH +
+          leadWidth +
+          "px";
       };
       const onUp = () => {
         document.removeEventListener("mousemove", onMove);
@@ -1161,8 +1327,24 @@ function renderTable(app, source, el, ctx) {
 
     const thead = table.createEl("thead");
     const htr = thead.createEl("tr");
+    if (selecting) {
+      const selTh = htr.createEl("th", { cls: "smart-table-selcol" });
+      const all = selTh.createEl("input", { attr: { type: "checkbox" } });
+      const shownIds = shown.map((r) => r.id);
+      const selCount = shownIds.filter((id) => selection.has(id)).length;
+      all.checked = shownIds.length > 0 && selCount === shownIds.length;
+      all.indeterminate = selCount > 0 && selCount < shownIds.length;
+      all.setAttr("aria-label", "Select all rows");
+      all.onclick = () => {
+        if (all.checked) shownIds.forEach((id) => selection.add(id));
+        else shownIds.forEach((id) => selection.delete(id));
+        draw();
+      };
+    }
     state.columns.forEach((col, index) => {
-      const th = htr.createEl("th", { cls: "smart-table-th" });
+      const th = htr.createEl("th", {
+        cls: "smart-table-th" + (index === 0 ? " smart-table-th-first" : ""),
+      });
       // Drop target for column reorder.
       th.addEventListener("dragover", (e) => {
         if (dragColId == null || dragColId === col.id) return;
@@ -1243,14 +1425,20 @@ function renderTable(app, source, el, ctx) {
 
     if (state.showFilters) {
       const ftr = thead.createEl("tr", { cls: "smart-table-filter-row" });
-      state.columns.forEach((col) =>
-        renderFilterControl(ftr.createEl("th"), col)
+      if (selecting) ftr.createEl("th", { cls: "smart-table-selcol" });
+      state.columns.forEach((col, index) =>
+        renderFilterControl(
+          ftr.createEl("th", {
+            cls: index === 0 ? "smart-table-th-first" : "",
+          }),
+          col
+        )
       );
       ftr.createEl("th");
     }
 
-    // One trailing column holds the delete handle.
-    const fullSpan = String(state.columns.length + 1);
+    // Trailing delete column, plus a leading checkbox column while selecting.
+    const fullSpan = String(state.columns.length + 1 + (selecting ? 1 : 0));
 
     const removeRow = (row) => {
       state.rows = state.rows.filter((r) => r.id !== row.id);
@@ -1261,7 +1449,9 @@ function renderTable(app, source, el, ctx) {
     const rowHasData = (row) =>
       state.columns.some((c) => {
         const v = row.cells[c.id];
-        return c.type === "checkbox" ? v === true || v === "true" : v != null && v !== "";
+        if (c.type === "checkbox") return v === true || v === "true";
+        if (c.type === "multiselect") return asTags(v).length > 0;
+        return v != null && v !== "";
       });
     const deleteRow = (row) => {
       if (!rowHasData(row)) {
@@ -1277,6 +1467,28 @@ function renderTable(app, source, el, ctx) {
       );
     };
 
+    // Bulk actions on the current selection.
+    const deleteSelected = (targets) => {
+      const ids = new Set(targets.map((r) => r.id));
+      const doDelete = () => {
+        state.rows = state.rows.filter((r) => !ids.has(r.id));
+        selection.clear();
+        commit();
+      };
+      if (targets.some(rowHasData)) {
+        confirmAction(
+          app,
+          "Delete rows?",
+          "Delete " + targets.length + " selected row" +
+            (targets.length === 1 ? "" : "s") + "? This can't be undone.",
+          "Delete rows",
+          doDelete
+        );
+      } else {
+        doDelete();
+      }
+    };
+
     const tbody = table.createEl("tbody");
     if (!shown.length) {
       const tr = tbody.createEl("tr");
@@ -1288,6 +1500,7 @@ function renderTable(app, source, el, ctx) {
     }
     shown.forEach((row) => {
       const tr = tbody.createEl("tr");
+      if (selecting && selection.has(row.id)) tr.addClass("smart-table-row-selected");
       // Right-click anywhere on the row to delete it — reachable without
       // scrolling to the row's ✕ when the table has many columns.
       tr.oncontextmenu = (e) => {
@@ -1322,9 +1535,22 @@ function renderTable(app, source, el, ctx) {
         dragRowId = null;
         commit();
       });
+      if (selecting) {
+        const selTd = tr.createEl("td", { cls: "smart-table-selcol" });
+        const cb = selTd.createEl("input", { attr: { type: "checkbox" } });
+        cb.checked = selection.has(row.id);
+        cb.setAttr("aria-label", "Select row");
+        cb.onclick = () => {
+          if (cb.checked) selection.add(row.id);
+          else selection.delete(row.id);
+          draw();
+        };
+      }
       let firstTd = null;
       state.columns.forEach((col, ci) => {
-        const td = tr.createEl("td", { cls: "smart-table-td" });
+        const td = tr.createEl("td", {
+          cls: "smart-table-td" + (ci === 0 ? " smart-table-td-first" : ""),
+        });
         if (ci === 0) firstTd = td;
         renderCell(td, col, row);
       });
@@ -1377,6 +1603,17 @@ function renderTable(app, source, el, ctx) {
 // Plugin
 // ---------------------------------------------------------------------------
 
+// Insert a starter smart-table block at the editor's cursor.
+function insertTableBlock(editor) {
+  const json = JSON.stringify(defaultState(), null, 2);
+  const cur = editor.getCursor();
+  const atLineStart = cur.ch === 0;
+  const text = (atLineStart ? "" : "\n") + "```smart-table\n" + json + "\n```\n";
+  editor.replaceRange(text, cur);
+  const added = text.split("\n").length - 1;
+  editor.setCursor({ line: cur.line + added, ch: 0 });
+}
+
 module.exports = class SmartTablePlugin extends Plugin {
   onload() {
     this.registerMarkdownCodeBlockProcessor("smart-table", (source, el, ctx) => {
@@ -1386,16 +1623,17 @@ module.exports = class SmartTablePlugin extends Plugin {
     this.addCommand({
       id: "insert-smart-table",
       name: "Insert table",
-      editorCallback: (editor) => {
-        const json = JSON.stringify(defaultState(), null, 2);
-        const cur = editor.getCursor();
-        const atLineStart = cur.ch === 0;
-        const text =
-          (atLineStart ? "" : "\n") + "```smart-table\n" + json + "\n```\n";
-        editor.replaceRange(text, cur);
-        const added = text.split("\n").length - 1;
-        editor.setCursor({ line: cur.line + added, ch: 0 });
-      },
+      editorCallback: (editor) => insertTableBlock(editor),
+    });
+
+    // Left-sidebar ribbon button to insert a table into the active note.
+    this.addRibbonIcon("table", "Insert Smart Table", () => {
+      const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+      if (!view || !view.editor) {
+        new Notice("Smart Table: open a note in edit mode to insert a table.");
+        return;
+      }
+      insertTableBlock(view.editor);
     });
 
     // Convert a plain Markdown table (selected, or under the cursor) in place.

@@ -252,6 +252,84 @@ select.smart-table-filter-input {
   border: 1px dashed var(--st-border);
 }
 
+/* Multi-select tag cells */
+.smart-table-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 8px;
+}
+.smart-table-tag {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.smart-table-tag-x {
+  display: inline-flex;
+  cursor: pointer;
+  opacity: 0.6;
+}
+.smart-table-tag-x:hover {
+  opacity: 1;
+}
+.smart-table-tag-x .svg-icon {
+  width: 11px;
+  height: 11px;
+}
+.smart-table-tag-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-faint);
+  border: 1px dashed var(--st-border);
+}
+.smart-table-tag-add:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.smart-table-tag-add .svg-icon {
+  width: 12px;
+  height: 12px;
+}
+
+/* Row selection */
+.smart-table-selcol {
+  width: 34px;
+  text-align: center;
+}
+.smart-table-selcol input {
+  margin: 6px auto;
+  cursor: pointer;
+}
+.smart-table-row-selected td {
+  background: var(--background-modifier-hover);
+}
+.smart-table-selbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  padding: 5px 8px;
+  border: 1px solid var(--st-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+.smart-table-selcount {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-right: 4px;
+}
+.smart-table-btn[disabled] {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 .smart-table-empty {
   padding: 12px;
   text-align: center;
@@ -259,17 +337,17 @@ select.smart-table-filter-input {
 }
 
 /* Drag-and-drop reorder */
-.smart-table-td:first-child {
+.smart-table-td-first {
   position: relative;
   /* Reserve a left lane for the row grip so it never overlaps cell content
      (e.g. a date-time picker or text) in the first column. */
   padding-left: 20px;
 }
 /* Keep the header (and filter row) first cell aligned with the body lane. */
-.smart-table-th:first-child .smart-table-th-inner {
+.smart-table-th-first .smart-table-th-inner {
   padding-left: 20px;
 }
-.smart-table-filter-row th:first-child {
+.smart-table-filter-row .smart-table-th-first {
   padding-left: 20px;
 }
 .smart-table-row-grip {

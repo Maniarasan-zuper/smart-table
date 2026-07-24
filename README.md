@@ -35,11 +35,16 @@ in Reading view and Live Preview.
   for every cell in that column.
 - **Reorder** — drag a column by its type icon to move it; hover a row and drag
   the ⠿ grip to reorder rows (dragging a sorted row switches to manual order).
-- **Column types** — Text, Number, Date, **Date & time**, Checkbox, Select, and
-  **Status** (colored pills; add your own options on the fly). Date & time sorts
-  and filters as a true timestamp.
-- **Edit options** — a Status/Select column's ▾ menu → **Edit options** lets you
-  pick each option's color from a preset palette, rename it, or delete it.
+- **Column types** — Text, Number, Date, **Date & time**, Checkbox, Select,
+  **Multi-select** (multiple tags per cell), and **Status** (colored pills; add
+  your own options on the fly). Date & time sorts and filters as a true
+  timestamp.
+- **Edit options** — a Status/Select/Multi-select column's ▾ menu → **Edit
+  options** lets you pick each option's color from a preset palette, rename it,
+  or delete it.
+- **Select rows** — the toolbar **Select** button turns on row checkboxes (with
+  select-all) for bulk **Export** and **Delete**.
+- **Ribbon icon** — a left-sidebar button inserts a table into the current note.
 - **Export CSV** — the toolbar **Export CSV** button downloads the table as
   currently sorted and filtered (RFC 4180 quoting, UTF-8 BOM for Excel).
 
