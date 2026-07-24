@@ -283,8 +283,10 @@ async function persist(app, ctx, el, state) {
   if (!info) return;
   const file = app.vault.getAbstractFileByPath(ctx.sourcePath);
   if (!file) return;
-  const block =
-    "```smart-table\n" + JSON.stringify(state, null, 2) + "\n```";
+  // Store minified (single line): a large table stays ~3 lines in the note
+  // instead of thousands, so Obsidian renders it immediately rather than
+  // lazily (which showed big tables as raw source until scrolled/edited).
+  const block = "```smart-table\n" + JSON.stringify(state) + "\n```";
   // `info.lineEnd` from getSectionInfo() can be stale in Live Preview (the
   // widget is reused, not re-rendered, after we edit the file). Trusting it
   // would splice the wrong range once the block grows/shrinks and corrupt the
@@ -498,7 +500,7 @@ function convertTableRange(editor, range) {
     new Notice("Smart Table: no Markdown table found to convert.");
     return false;
   }
-  const block = "```smart-table\n" + JSON.stringify(state, null, 2) + "\n```";
+  const block = "```smart-table\n" + JSON.stringify(state) + "\n```";
   editor.replaceRange(block, range.from, range.to);
   return true;
 }
@@ -1605,7 +1607,7 @@ function renderTable(app, source, el, ctx) {
 
 // Insert a starter smart-table block at the editor's cursor.
 function insertTableBlock(editor) {
-  const json = JSON.stringify(defaultState(), null, 2);
+  const json = JSON.stringify(defaultState());
   const cur = editor.getCursor();
   const atLineStart = cur.ch === 0;
   const text = (atLineStart ? "" : "\n") + "```smart-table\n" + json + "\n```\n";

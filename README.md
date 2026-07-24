@@ -58,21 +58,13 @@ in place, and column types are inferred from the data — numbers become Number,
 
 ## How data is stored
 
-Everything lives in the code block as JSON:
+Everything lives in the code block as a single line of JSON
+(`{ "columns": [...], "rows": [...], "sort": ..., "filters": {} }`). Keeping it
+on one line means even a large table stays ~3 lines in the note, so Obsidian
+renders it right away instead of showing the raw source until you scroll.
 
-````markdown
-```smart-table
-{
-  "columns": [ ... ],
-  "rows": [ ... ],
-  "sort": { "col": "...", "dir": "asc" },
-  "filters": {}
-}
-```
-````
-
-To edit a table's source directly, place your cursor inside the block in Live
-Preview (or switch to Source mode).
+Edit through the interactive grid rather than by hand. (To inspect the raw JSON,
+place your cursor inside the block in Live Preview, or switch to Source mode.)
 
 ## Install
 
