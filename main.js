@@ -66,6 +66,33 @@ function normalizeUrl(s) {
   }
 }
 
+// Open an external URL reliably. Obsidian desktop is Electron, where
+// shell.openExternal launches the system browser; window.open is the mobile
+// (and last-resort) fallback.
+function openUrl(href) {
+  if (!href) return;
+  try {
+    const electron = require("electron");
+    if (electron && electron.shell && electron.shell.openExternal) {
+      electron.shell.openExternal(href);
+      return;
+    }
+  } catch (e) {
+    /* not on desktop / no electron — fall through */
+  }
+  window.open(href, "_blank");
+}
+
+// Parse a Markdown-style link cell value: [Label](url) or [Label](url "tooltip").
+// Returns { label, url, title } or null when the value isn't that form (a plain
+// URL). The url part may not contain spaces; the optional title is quoted.
+function parseLink(s) {
+  const m = String(s == null ? "" : s)
+    .trim()
+    .match(/^\[([^\]]*)\]\(\s*(\S+?)(?:\s+"([^"]*)")?\s*\)$/);
+  return m ? { label: m[1], url: m[2], title: m[3] || "" } : null;
+}
+
 // Normalize a date-time string to the value an <input type="datetime-local">
 // expects (YYYY-MM-DDTHH:mm), accepting either a space or "T" separator and an
 // optional seconds component. Returns the trimmed input unchanged if it doesn't
@@ -850,6 +877,9 @@ function renderTable(app, source, el, persistFn) {
   // across rebuilds within a single render.
   let selecting = false;
   const selection = new Set();
+  // URL cells that render as a Markdown link show the link by default; this set
+  // (keyed "rowId:colId") tracks which are temporarily switched to raw editing.
+  const urlEditing = new Set();
 
   // Rebuild the whole widget from `state`.
   const draw = () => build();
@@ -1391,36 +1421,82 @@ function renderTable(app, source, el, persistFn) {
       add.setAttr("aria-label", "Add tag");
       add.onclick = (e) => openMultiAddMenu(e, col, row, refresh);
     } else if (col.type === "url") {
-      // An always-editable field plus an "open" icon that appears once the
-      // value is a valid http(s) link. Invalid links get a subtle red cue.
-      const wrap = td.createDiv({ cls: "smart-table-url" });
-      const inp = wrap.createEl("input", {
-        cls: "smart-table-cell-input smart-table-url-input",
-        attr: { type: "text", inputmode: "url", placeholder: "https://…" },
-      });
-      inp.value = val == null ? "" : String(val);
-      const open = wrap.createEl("a", { cls: "smart-table-url-open" });
-      setIcon(open, "external-link");
-      open.setAttr("aria-label", "Open link");
-      const sync = () => {
-        const raw = inp.value.trim();
-        const href = normalizeUrl(raw);
-        wrap.toggleClass("is-invalid", raw !== "" && !href);
-        open.style.display = href ? "" : "none";
-        if (href) open.href = href;
-      };
-      inp.addEventListener("input", sync);
-      inp.onchange = () => {
-        row.cells[col.id] = inp.value.trim();
-        save();
+      const raw = val == null ? "" : String(val);
+      const link = parseLink(raw);
+      const key = row.id + ":" + col.id;
+      if (link && !urlEditing.has(key)) {
+        // A Markdown link value — [Label](url "tooltip") — renders as a clickable
+        // label with the tooltip as its title. A hover pencil switches to raw
+        // editing. Plain URLs (below) keep their always-editable field.
+        const wrap = td.createDiv({ cls: "smart-table-url" });
+        const href = normalizeUrl(link.url);
+        const a = wrap.createEl("a", { cls: "smart-table-url-link" });
+        a.setText(link.label || href || link.url);
+        if (link.title) a.title = link.title;
+        if (href) {
+          a.href = href;
+          a.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openUrl(href);
+          };
+        } else {
+          wrap.addClass("is-invalid");
+        }
+        const edit = wrap.createSpan({ cls: "smart-table-url-edit" });
+        setIcon(edit, "pencil");
+        edit.setAttr("aria-label", "Edit link");
+        edit.onclick = () => {
+          urlEditing.add(key);
+          refresh();
+        };
+      } else {
+        // Editable field plus an "open" icon that appears once the value is a
+        // valid link (plain URL or a well-formed Markdown link). A red cue marks
+        // values that aren't usable links.
+        const wrap = td.createDiv({ cls: "smart-table-url" });
+        const inp = wrap.createEl("input", {
+          cls: "smart-table-cell-input smart-table-url-input",
+          attr: { type: "text", inputmode: "url", placeholder: 'https://…  or  [Label](url "tip")' },
+        });
+        inp.value = raw;
+        const open = wrap.createEl("a", { cls: "smart-table-url-open" });
+        setIcon(open, "external-link");
+        open.setAttr("aria-label", "Open link");
+        const hrefOf = (s) => {
+          const lk = parseLink(s.trim());
+          return normalizeUrl(lk ? lk.url : s.trim());
+        };
+        const sync = () => {
+          const v = inp.value.trim();
+          const href = hrefOf(v);
+          wrap.toggleClass("is-invalid", v !== "" && !href);
+          open.style.display = href ? "" : "none";
+          if (href) open.href = href;
+        };
+        inp.addEventListener("input", sync);
+        inp.onchange = () => {
+          row.cells[col.id] = inp.value.trim();
+          urlEditing.delete(key);
+          save();
+          refresh();
+        };
+        // Leaving an edit-in-progress (opened via the pencil) restores the
+        // rendered link without needing a value change.
+        inp.addEventListener("blur", () => {
+          if (urlEditing.has(key)) {
+            urlEditing.delete(key);
+            refresh();
+          }
+        });
+        open.onclick = (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          openUrl(hrefOf(inp.value));
+        };
         sync();
-      };
-      open.onclick = (e) => {
-        e.preventDefault();
-        const href = normalizeUrl(inp.value);
-        if (href) window.open(href, "_blank");
-      };
-      sync();
+        if (urlEditing.has(key)) window.setTimeout(() => inp.focus(), 0);
+      }
     } else if (
       col.type === "number" ||
       col.type === "date" ||

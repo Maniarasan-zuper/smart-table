@@ -284,6 +284,48 @@ select.smart-table-filter-input {
 .smart-table-url.is-invalid .smart-table-url-input {
   color: var(--text-error);
 }
+/* Rendered Markdown-link value: [Label](url "tooltip"). */
+.smart-table-url-link {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  color: var(--text-accent);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.smart-table-url-link:hover {
+  text-decoration: underline;
+}
+.smart-table-url.is-invalid .smart-table-url-link {
+  color: var(--text-error);
+}
+.smart-table-url-edit {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  border-radius: 4px;
+  color: var(--text-faint);
+  cursor: pointer;
+  opacity: 0;
+}
+.smart-table-url:hover .smart-table-url-edit {
+  opacity: 1;
+}
+.smart-table-url-edit:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+.smart-table-url-edit .svg-icon {
+  width: 14px;
+  height: 14px;
+}
 .smart-table-url-open {
   flex: none;
   display: inline-flex;

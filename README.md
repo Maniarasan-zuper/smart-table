@@ -46,7 +46,9 @@ in Reading view and Live Preview.
 - **Column types** — Text, **URL** (clickable links), Number, Date, **Date &
   time**, Checkbox, Select, **Multi-select** (multiple tags per cell), and
   **Status** (colored pills; add your own options on the fly). URL cells stay
-  editable and show an ↗ open button for valid `http(s)` links. Date & time
+  editable and show an ↗ open button for valid `http(s)` links; a value written
+  as `[Label](https://url "Tooltip")` renders as a clickable label (with tooltip)
+  — hover and click ✎ to edit it. Date & time
   sorts and filters as a true timestamp. Changing a column's type converts
   existing values where it can, and warns you (with a count) before clearing any
   that can't be converted.
