@@ -43,11 +43,13 @@ in Reading view and Live Preview.
   for every cell in that column.
 - **Reorder** — drag a column by its type icon to move it; hover a row and drag
   the ⠿ grip to reorder rows (dragging a sorted row switches to manual order).
-- **Column types** — Text, Number, Date, **Date & time**, Checkbox, Select,
-  **Multi-select** (multiple tags per cell), and **Status** (colored pills; add
-  your own options on the fly). Date & time sorts and filters as a true
-  timestamp. Changing a column's type converts existing values where it can, and
-  warns you (with a count) before clearing any that can't be converted.
+- **Column types** — Text, **URL** (clickable links), Number, Date, **Date &
+  time**, Checkbox, Select, **Multi-select** (multiple tags per cell), and
+  **Status** (colored pills; add your own options on the fly). URL cells stay
+  editable and show an ↗ open button for valid `http(s)` links. Date & time
+  sorts and filters as a true timestamp. Changing a column's type converts
+  existing values where it can, and warns you (with a count) before clearing any
+  that can't be converted.
 - **Edit options** — a Status/Select/Multi-select column's ▾ menu → **Edit
   options** lets you pick each option's color from a preset palette, rename it,
   or delete it.

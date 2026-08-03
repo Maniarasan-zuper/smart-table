@@ -21,6 +21,7 @@ const PALETTE_KEYS = Object.keys(PALETTE);
 
 const COLUMN_TYPES = [
   "text",
+  "url",
   "number",
   "date",
   "datetime",
@@ -31,6 +32,7 @@ const COLUMN_TYPES = [
 ];
 const TYPE_LABELS = {
   text: "Text",
+  url: "URL",
   number: "Number",
   date: "Date",
   datetime: "Date & time",
@@ -47,6 +49,21 @@ const OPTION_TYPES = ["select", "multiselect", "status"];
 function asTags(v) {
   if (Array.isArray(v)) return v.slice();
   return v == null || v === "" ? [] : [String(v)];
+}
+
+// Validate/normalize a URL cell value. Accepts bare hosts ("example.com") by
+// assuming https, and only allows http(s). Returns a canonical href, or "" when
+// the value isn't a usable web link (used to gate the "open" affordance).
+function normalizeUrl(s) {
+  s = String(s == null ? "" : s).trim();
+  if (!s) return "";
+  const withProto = /^[a-z][a-z0-9+.-]*:\/\//i.test(s) ? s : "https://" + s;
+  try {
+    const u = new URL(withProto);
+    return u.protocol === "http:" || u.protocol === "https:" ? u.href : "";
+  } catch {
+    return "";
+  }
 }
 
 // Normalize a date-time string to the value an <input type="datetime-local">
@@ -72,6 +89,7 @@ const DEFAULT_COL_WIDTHS = {
   select: 150,
   multiselect: 200,
   text: 220,
+  url: 220,
 };
 const FALLBACK_COL_WIDTH = 180;
 const MIN_COL_WIDTH = 60;
@@ -103,6 +121,7 @@ function typeIcon(t) {
   return (
     {
       text: "text",
+      url: "link",
       number: "hash",
       date: "calendar",
       datetime: "calendar-clock",
@@ -308,6 +327,11 @@ function convertValue(v, from, to) {
       : String(v);
 
   if (to === "text") return { value: str, ok: true };
+  if (to === "url") {
+    // URL is text-like: keep any string (no data loss). Values that aren't
+    // usable links simply render as non-clickable and can be fixed in place.
+    return { value: str, ok: true };
+  }
   if (to === "number") {
     const n = parseFloat(str);
     return isNaN(n) ? { value: "", ok: false } : { value: String(n), ok: true };
@@ -496,6 +520,7 @@ function inferColumnType(values) {
   if (nonEmpty.every((v) => /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?$/.test(v.trim())))
     return "datetime";
   if (nonEmpty.every((v) => /^\d{4}-\d{2}-\d{2}$/.test(v.trim()))) return "date";
+  if (nonEmpty.every((v) => /^https?:\/\/\S+$/i.test(v.trim()))) return "url";
   return "text";
 }
 
@@ -1365,6 +1390,37 @@ function renderTable(app, source, el, persistFn) {
       setIcon(add, "plus");
       add.setAttr("aria-label", "Add tag");
       add.onclick = (e) => openMultiAddMenu(e, col, row, refresh);
+    } else if (col.type === "url") {
+      // An always-editable field plus an "open" icon that appears once the
+      // value is a valid http(s) link. Invalid links get a subtle red cue.
+      const wrap = td.createDiv({ cls: "smart-table-url" });
+      const inp = wrap.createEl("input", {
+        cls: "smart-table-cell-input smart-table-url-input",
+        attr: { type: "text", inputmode: "url", placeholder: "https://…" },
+      });
+      inp.value = val == null ? "" : String(val);
+      const open = wrap.createEl("a", { cls: "smart-table-url-open" });
+      setIcon(open, "external-link");
+      open.setAttr("aria-label", "Open link");
+      const sync = () => {
+        const raw = inp.value.trim();
+        const href = normalizeUrl(raw);
+        wrap.toggleClass("is-invalid", raw !== "" && !href);
+        open.style.display = href ? "" : "none";
+        if (href) open.href = href;
+      };
+      inp.addEventListener("input", sync);
+      inp.onchange = () => {
+        row.cells[col.id] = inp.value.trim();
+        save();
+        sync();
+      };
+      open.onclick = (e) => {
+        e.preventDefault();
+        const href = normalizeUrl(inp.value);
+        if (href) window.open(href, "_blank");
+      };
+      sync();
     } else if (
       col.type === "number" ||
       col.type === "date" ||

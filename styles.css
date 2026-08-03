@@ -269,6 +269,42 @@ select.smart-table-filter-input {
   margin: 6px 8px;
 }
 
+/* URL cells: an editable field with an "open" icon that shows for valid links. */
+.smart-table-url {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.smart-table-url-input {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-accent);
+  text-overflow: ellipsis;
+}
+.smart-table-url.is-invalid .smart-table-url-input {
+  color: var(--text-error);
+}
+.smart-table-url-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  border-radius: 4px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.smart-table-url-open:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-accent);
+}
+.smart-table-url-open .svg-icon {
+  width: 15px;
+  height: 15px;
+}
+
 .smart-table-pill {
   display: inline-block;
   margin: 5px 8px;
