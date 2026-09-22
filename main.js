@@ -1029,6 +1029,13 @@ function renderTable(app, source, el, persistFn) {
     const idx = state.rows.findIndex((r) => r.id === row.id);
     const nr = { id: uid("r"), cells: {} };
     state.columns.forEach((c) => (nr.cells[c.id] = defaultCell(c.type)));
+    // In grouped mode, keep an inserted row in the same group as its target
+    // while leaving every other cell blank. cloneValue protects multiselect
+    // arrays from sharing a reference with the source row.
+    if (idx >= 0 && state.group) {
+      const groupCol = state.columns.find((c) => c.id === state.group.col);
+      if (groupCol) nr.cells[groupCol.id] = cloneValue(row.cells[groupCol.id]);
+    }
     state.rows.splice(idx < 0 ? state.rows.length : idx + (below ? 1 : 0), 0, nr);
     commit();
   };
