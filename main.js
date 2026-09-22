@@ -963,6 +963,8 @@ function renderTable(app, source, el, persistFn) {
   const selection = new Set();
   let groupPanelOpen = false;
   const collapsedGroups = new Set();
+  let renderedColumnWidths = null;
+  let buildVersion = 0;
   // URL cells that render as a Markdown link show the link by default; this set
   // (keyed "rowId:colId") tracks which are temporarily switched to raw editing.
   const urlEditing = new Set();
@@ -1650,6 +1652,20 @@ function renderTable(app, source, el, persistFn) {
     const prevWrap = el.querySelector(".smart-table-wrap");
     const keepScrollLeft = prevWrap ? prevWrap.scrollLeft : 0;
     const keepScrollTop = prevWrap ? prevWrap.scrollTop : 0;
+    const currentColumnWidths = state.columns.map((c) => columnWidth(c));
+    const canReuseRowHeights =
+      !renderedColumnWidths ||
+      renderedColumnWidths.length === currentColumnWidths.length &&
+        renderedColumnWidths.every((width, i) => width === currentColumnWidths[i]);
+    const rowHeightCache = new Map();
+    if (prevWrap && canReuseRowHeights) {
+      prevWrap.querySelectorAll("tbody tr[data-row-id]").forEach((tr) => {
+        if (tr.hidden) return;
+        const height = tr.getBoundingClientRect().height;
+        if (height > 0) rowHeightCache.set(tr.dataset.rowId, height);
+      });
+    }
+    const thisBuild = ++buildVersion;
     el.empty();
     el.addClass("smart-table");
 
@@ -2197,6 +2213,12 @@ function renderTable(app, source, el, persistFn) {
       setIcon(del, "x");
       del.setAttr("aria-label", "Delete row");
       del.onclick = () => deleteRow(row);
+      const cachedHeight = rowHeightCache.get(row.id);
+      if (cachedHeight) {
+        tr.style.height = cachedHeight + "px";
+        tr.querySelectorAll("td").forEach((td) => (td.style.height = cachedHeight + "px"));
+      }
+      return tr;
     };
 
     if (groups) {
@@ -2208,6 +2230,7 @@ function renderTable(app, source, el, persistFn) {
         });
         const toggle = cell.createSpan({ cls: "smart-table-group-toggle" });
         setIcon(toggle, collapsedGroups.has(group.key) ? "chevron-right" : "chevron-down");
+        const groupRows = [];
         const groupCol = state.columns.find((c) => c.id === state.group.col);
         const option = groupCol && ["select", "status"].includes(groupCol.type)
           ? (groupCol.options || []).find((o) => o.label === group.label)
@@ -2223,11 +2246,18 @@ function renderTable(app, source, el, persistFn) {
         cell.createSpan({ cls: "smart-table-group-count", text: String(group.rows.length) });
         header.setAttr("aria-expanded", collapsedGroups.has(group.key) ? "false" : "true");
         header.onclick = () => {
-          if (collapsedGroups.has(group.key)) collapsedGroups.delete(group.key);
-          else collapsedGroups.add(group.key);
-          draw();
+          const collapsed = !collapsedGroups.has(group.key);
+          if (collapsed) collapsedGroups.add(group.key);
+          else collapsedGroups.delete(group.key);
+          groupRows.forEach((rowTr) => (rowTr.hidden = collapsed));
+          setIcon(toggle, collapsed ? "chevron-right" : "chevron-down");
+          header.setAttr("aria-expanded", collapsed ? "false" : "true");
         };
-        if (!collapsedGroups.has(group.key)) group.rows.forEach(renderRow);
+        group.rows.forEach((row) => {
+          const rowTr = renderRow(row);
+          rowTr.hidden = collapsedGroups.has(group.key);
+          groupRows.push(rowTr);
+        });
       });
     } else {
       shown.forEach(renderRow);
@@ -2249,6 +2279,19 @@ function renderTable(app, source, el, persistFn) {
     if (keepScrollLeft || keepScrollTop) {
       wrap.scrollLeft = keepScrollLeft;
       wrap.scrollTop = keepScrollTop;
+    }
+    renderedColumnWidths = currentColumnWidths;
+    if (rowHeightCache.size) {
+      window.setTimeout(() => {
+        if (thisBuild !== buildVersion) return;
+        window.requestAnimationFrame(() => {
+          if (thisBuild !== buildVersion) return;
+          table.querySelectorAll("tr[data-row-id]").forEach((tr) => {
+            tr.style.removeProperty("height");
+            tr.querySelectorAll("td").forEach((td) => td.style.removeProperty("height"));
+          });
+        });
+      }, 0);
     }
   }
 
