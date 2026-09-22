@@ -194,6 +194,7 @@ function defaultState() {
       },
     ],
     sort: null, // { col, dir: "asc" | "desc" }
+    group: null, // { col, dir: "asc" | "desc" }
     filters: {}, // { [colId]: string }
     showFilters: false,
   };
@@ -211,6 +212,14 @@ function parseState(source) {
   }
   if (!s || !Array.isArray(s.columns) || !Array.isArray(s.rows)) return null;
   s.filters = s.filters || {};
+  if (
+    !s.group ||
+    typeof s.group !== "object" ||
+    !s.columns.some((c) => c.id === s.group.col) ||
+    (s.group.dir !== "asc" && s.group.dir !== "desc")
+  ) {
+    s.group = null;
+  }
   s.rows.forEach((r) => (r.cells = r.cells || {}));
   return s;
 }
@@ -276,20 +285,95 @@ function matchesFilter(col, raw, fv) {
 
 // Rows after applying filters and sort (does not mutate state.rows).
 function viewRows(state) {
+  let rows = filteredRows(state);
+  if (state.group) {
+    return groupEntries(state, rows).flatMap((g) => g.rows);
+  }
+  return sortRows(state, rows);
+}
+
+function filteredRows(state) {
   let rows = state.rows.slice();
   rows = rows.filter((r) =>
     state.columns.every((c) =>
       matchesFilter(c, r.cells[c.id], state.filters[c.id])
     )
   );
-  if (state.sort) {
-    const col = state.columns.find((c) => c.id === state.sort.col);
-    if (col) {
-      rows.sort((a, b) => compareValues(a.cells[col.id], b.cells[col.id], col.type));
-      if (state.sort.dir === "desc") rows.reverse();
-    }
-  }
   return rows;
+}
+
+function sortRows(state, rows) {
+  if (!state.sort) return rows;
+  const col = state.columns.find((c) => c.id === state.sort.col);
+  if (!col) return rows;
+  const dir = state.sort.dir === "desc" ? -1 : 1;
+  rows.sort((a, b) => dir * compareValues(a.cells[col.id], b.cells[col.id], col.type));
+  return rows;
+}
+
+function groupCellValue(col, raw) {
+  if (col.type === "multiselect") {
+    const order = new Map((col.options || []).map((o, i) => [o.label, i]));
+    return asTags(raw)
+      .slice()
+      .sort((a, b) => {
+        const ai = order.has(a) ? order.get(a) : Number.MAX_SAFE_INTEGER;
+        const bi = order.has(b) ? order.get(b) : Number.MAX_SAFE_INTEGER;
+        return ai - bi || String(a).localeCompare(String(b), undefined, { numeric: true });
+      })
+      .join(", ");
+  }
+  if (col.type === "checkbox") return raw === true || raw === "true" ? "true" : "false";
+  return raw == null ? "" : String(raw);
+}
+
+function groupEntries(state, rows) {
+  const group = state.group;
+  if (!group) return [];
+  const col = state.columns.find((c) => c.id === group.col);
+  if (!col) return [];
+  const groups = new Map();
+  rows.forEach((row) => {
+    const value = groupCellValue(col, row.cells[col.id]);
+    const empty = value.trim() === "";
+    const key = empty ? "__empty__" : value;
+    const label = empty
+      ? "Uncategorized"
+      : col.type === "checkbox"
+      ? value === "true"
+        ? "Checked"
+        : "Unchecked"
+      : value;
+    if (!groups.has(key)) groups.set(key, { key, label, sortValue: value, rows: [] });
+    groups.get(key).rows.push(row);
+  });
+  const optionOrder = new Map((col.options || []).map((o, i) => [o.label, i]));
+  const rank = (entry) => {
+    if (entry.key === "__empty__") return Number.MAX_SAFE_INTEGER;
+    if (OPTION_TYPES.includes(col.type)) {
+      if (col.type === "multiselect") {
+        const first = entry.label.split(", ")[0];
+        return optionOrder.has(first) ? optionOrder.get(first) : (col.options || []).length + 1;
+      }
+      return optionOrder.has(entry.label) ? optionOrder.get(entry.label) : (col.options || []).length + 1;
+    }
+    return entry.sortValue;
+  };
+  const entries = Array.from(groups.values());
+  entries.sort((a, b) => {
+    if (a.key === "__empty__") return 1;
+    if (b.key === "__empty__") return -1;
+    const ar = rank(a), br = rank(b);
+    const aUnknown = OPTION_TYPES.includes(col.type) && typeof ar === "number" && ar > (col.options || []).length;
+    const bUnknown = OPTION_TYPES.includes(col.type) && typeof br === "number" && br > (col.options || []).length;
+    if (aUnknown !== bUnknown) return aUnknown ? 1 : -1;
+    const cmp = typeof ar === "number" && typeof br === "number"
+      ? ar - br
+      : compareValues(ar, br, col.type);
+    return (group.dir === "desc" ? -1 : 1) * (cmp || a.label.localeCompare(b.label, undefined, { numeric: true }));
+  });
+  entries.forEach((entry) => sortRows(state, entry.rows));
+  return entries;
 }
 
 function defaultCell(type) {
@@ -877,6 +961,8 @@ function renderTable(app, source, el, persistFn) {
   // across rebuilds within a single render.
   let selecting = false;
   const selection = new Set();
+  let groupPanelOpen = false;
+  const collapsedGroups = new Set();
   // URL cells that render as a Markdown link show the link by default; this set
   // (keyed "rowId:colId") tracks which are temporarily switched to raw editing.
   const urlEditing = new Set();
@@ -892,6 +978,7 @@ function renderTable(app, source, el, persistFn) {
     build();
     persistFn(state);
   };
+  const saveCell = (col) => (state.group && state.group.col === col.id ? commit() : save());
 
   // Append a blank row and persist. Shared by the toolbar button and the
   // "+ New row" footer at the bottom of the grid.
@@ -1013,6 +1100,7 @@ function renderTable(app, source, el, persistFn) {
     }, 0);
     const apply = () => {
       changeColumnType(col, to);
+      if (state.group && state.group.col === col.id) state.group = { col: col.id, dir: state.group.dir };
       state.rows.forEach((r, idx) => {
         const val = results[idx].value;
         if ((to === "select" || to === "status") && val) addOption(col, val);
@@ -1198,6 +1286,10 @@ function renderTable(app, source, el, persistFn) {
               state.columns = state.columns.filter((c) => c.id !== col.id);
               state.rows.forEach((r) => delete r.cells[col.id]);
               if (state.sort && state.sort.col === col.id) state.sort = null;
+              if (state.group && state.group.col === col.id) {
+                state.group = null;
+                groupPanelOpen = false;
+              }
               delete state.filters[col.id];
               commit();
             }
@@ -1210,8 +1302,11 @@ function renderTable(app, source, el, persistFn) {
   function openSelectMenu(evt, col, row, refresh) {
     const set = (value) => {
       row.cells[col.id] = value;
-      refresh();
-      save();
+      if (state.group && state.group.col === col.id) commit();
+      else {
+        refresh();
+        save();
+      }
     };
     const menu = new Menu();
     (col.options || []).forEach((o) =>
@@ -1256,8 +1351,11 @@ function renderTable(app, source, el, persistFn) {
   function openMultiAddMenu(evt, col, row, refresh) {
     const addTag = (label) => {
       row.cells[col.id] = asTags(row.cells[col.id]).concat(label);
-      refresh();
-      save();
+      if (state.group && state.group.col === col.id) commit();
+      else {
+        refresh();
+        save();
+      }
     };
     const menu = new Menu();
     const cur = asTags(row.cells[col.id]);
@@ -1381,7 +1479,7 @@ function renderTable(app, source, el, persistFn) {
       cb.checked = val === true || val === "true";
       cb.onchange = () => {
         row.cells[col.id] = cb.checked;
-        save();
+        saveCell(col);
       };
     } else if (col.type === "select" || col.type === "status") {
       const opt = (col.options || []).find((o) => o.label === val);
@@ -1412,8 +1510,11 @@ function renderTable(app, source, el, persistFn) {
         x.onclick = (e) => {
           e.stopPropagation();
           row.cells[col.id] = asTags(row.cells[col.id]).filter((t) => t !== label);
-          refresh();
-          save();
+          if (state.group && state.group.col === col.id) commit();
+          else {
+            refresh();
+            save();
+          }
         };
       });
       const add = box.createDiv({ cls: "smart-table-tag-add" });
@@ -1478,8 +1579,8 @@ function renderTable(app, source, el, persistFn) {
         inp.onchange = () => {
           row.cells[col.id] = inp.value.trim();
           urlEditing.delete(key);
-          save();
-          refresh();
+          saveCell(col);
+          if (!(state.group && state.group.col === col.id)) refresh();
         };
         // Leaving an edit-in-progress (opened via the pencil) restores the
         // rendered link without needing a value change.
@@ -1512,7 +1613,7 @@ function renderTable(app, source, el, persistFn) {
         val == null ? "" : col.type === "datetime" ? toDatetimeLocal(val) : val;
       inp.onchange = () => {
         row.cells[col.id] = inp.value;
-        save();
+        saveCell(col);
       };
     } else {
       // Text uses an auto-growing textarea so long content wraps onto new
@@ -1529,7 +1630,7 @@ function renderTable(app, source, el, persistFn) {
       ta.addEventListener("input", autosize);
       ta.onchange = () => {
         row.cells[col.id] = ta.value;
-        save();
+        saveCell(col);
       };
       // Size to existing content once the cell is in the DOM.
       window.setTimeout(autosize, 0);
@@ -1573,6 +1674,62 @@ function renderTable(app, source, el, persistFn) {
       commit();
     };
 
+    const groupBtn = bar.createEl("button", { cls: "smart-table-btn" });
+    if (state.group || groupPanelOpen) groupBtn.addClass("is-active");
+    setIcon(groupBtn.createSpan(), "list-tree");
+    groupBtn.createSpan({ text: "Group" });
+    groupBtn.setAttr("aria-label", "Group rows");
+    groupBtn.onclick = () => {
+      groupPanelOpen = !groupPanelOpen;
+      draw();
+    };
+
+    if (groupPanelOpen) {
+      const panel = el.createDiv({ cls: "smart-table-group-panel" });
+      const close = panel.createEl("button", { cls: "smart-table-group-close" });
+      setIcon(close, "x");
+      close.setAttr("aria-label", "Close grouping settings");
+      close.onclick = () => {
+        groupPanelOpen = false;
+        draw();
+      };
+      const select = panel.createEl("select", { cls: "smart-table-group-select" });
+      const none = select.createEl("option", { text: "Group by…" });
+      none.value = "";
+      if (!state.group) none.selected = true;
+      state.columns.forEach((col) => {
+        const option = select.createEl("option", { text: col.name || "Untitled" });
+        option.value = col.id;
+        if (state.group && state.group.col === col.id) option.selected = true;
+      });
+      const direction = panel.createDiv({ cls: "smart-table-group-direction" });
+      const asc = direction.createEl("button", { cls: "smart-table-group-dir" });
+      asc.setText("Ascending");
+      const desc = direction.createEl("button", { cls: "smart-table-group-dir" });
+      desc.setText("Descending");
+      if (!state.group || state.group.dir === "asc") asc.addClass("is-active");
+      else desc.addClass("is-active");
+      const applyGroup = (colId, dir) => {
+        state.group = colId ? { col: colId, dir } : null;
+        if (!state.group) collapsedGroups.clear();
+        commit();
+      };
+      select.onchange = () => applyGroup(select.value, state.group ? state.group.dir : "asc");
+      asc.onclick = () => applyGroup(select.value, "asc");
+      desc.onclick = () => applyGroup(select.value, "desc");
+      if (state.group) {
+        const clear = panel.createEl("button", { cls: "smart-table-group-clear" });
+        setIcon(clear, "trash-2");
+        clear.createSpan({ text: "Clear" });
+        clear.onclick = () => {
+          state.group = null;
+          collapsedGroups.clear();
+          groupPanelOpen = false;
+          commit();
+        };
+      }
+    }
+
     const csvBtn = bar.createEl("button", { cls: "smart-table-btn" });
     setIcon(csvBtn.createSpan(), "download");
     csvBtn.createSpan({ text: "Export CSV" });
@@ -1613,7 +1770,8 @@ function renderTable(app, source, el, persistFn) {
       }
     };
 
-    const shown = viewRows(state);
+    const groups = state.group ? groupEntries(state, filteredRows(state)) : null;
+    const shown = groups ? groups.flatMap((g) => g.rows) : viewRows(state);
     bar.createDiv({
       cls: "smart-table-count",
       text: shown.length + " of " + state.rows.length,
@@ -1945,7 +2103,7 @@ function renderTable(app, source, el, persistFn) {
       });
       td.setText(state.rows.length ? "No rows match the filters." : "No rows yet.");
     }
-    shown.forEach((row) => {
+    const renderRow = (row) => {
       const tr = tbody.createEl("tr");
       tr.dataset.rowId = row.id;
       if (selection.has(row.id)) tr.addClass("smart-table-row-selected");
@@ -1957,6 +2115,7 @@ function renderTable(app, source, el, persistFn) {
       };
       // Drop target for row reorder.
       tr.addEventListener("dragover", (e) => {
+        if (state.group) return;
         if (dragRowId == null || dragRowId === row.id) return;
         e.preventDefault();
         const r = tr.getBoundingClientRect();
@@ -1968,6 +2127,7 @@ function renderTable(app, source, el, persistFn) {
         tr.classList.remove("st-drop-above", "st-drop-below")
       );
       tr.addEventListener("drop", (e) => {
+        if (state.group) return;
         if (dragRowId == null) return;
         e.preventDefault();
         const r = tr.getBoundingClientRect();
@@ -2008,8 +2168,9 @@ function renderTable(app, source, el, persistFn) {
           e.preventDefault();
           openRowMenu(e, row);
         };
-        grip.draggable = true;
+        grip.draggable = !state.group;
         grip.addEventListener("dragstart", (e) => {
+          if (state.group) return;
           bakeSortThenClear();
           dragRowId = row.id;
           if (e.dataTransfer) {
@@ -2029,7 +2190,41 @@ function renderTable(app, source, el, persistFn) {
       setIcon(del, "x");
       del.setAttr("aria-label", "Delete row");
       del.onclick = () => deleteRow(row);
-    });
+    };
+
+    if (groups) {
+      groups.forEach((group) => {
+        const header = tbody.createEl("tr", { cls: "smart-table-group-row" });
+        const cell = header.createEl("td", {
+          cls: "smart-table-group-cell",
+          attr: { colspan: fullSpan },
+        });
+        const toggle = cell.createSpan({ cls: "smart-table-group-toggle" });
+        setIcon(toggle, collapsedGroups.has(group.key) ? "chevron-right" : "chevron-down");
+        const groupCol = state.columns.find((c) => c.id === state.group.col);
+        const option = groupCol && ["select", "status"].includes(groupCol.type)
+          ? (groupCol.options || []).find((o) => o.label === group.label)
+          : null;
+        const label = cell.createSpan({ cls: "smart-table-group-label" });
+        if (option) {
+          label.addClass("smart-table-pill");
+          const colors = PALETTE[option.color] || PALETTE.gray;
+          label.style.background = colors[0];
+          label.style.color = colors[1];
+        }
+        label.setText(group.label);
+        cell.createSpan({ cls: "smart-table-group-count", text: String(group.rows.length) });
+        header.setAttr("aria-expanded", collapsedGroups.has(group.key) ? "false" : "true");
+        header.onclick = () => {
+          if (collapsedGroups.has(group.key)) collapsedGroups.delete(group.key);
+          else collapsedGroups.add(group.key);
+          draw();
+        };
+        if (!collapsedGroups.has(group.key)) group.rows.forEach(renderRow);
+      });
+    } else {
+      shown.forEach(renderRow);
+    }
 
     // Footer "+ New row" — add rows without scrolling back up to the toolbar.
     const addTr = tbody.createEl("tr", { cls: "smart-table-addrow" });
