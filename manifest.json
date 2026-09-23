@@ -3,7 +3,7 @@
   "name": "Smart Table",
   "version": "1.10.0",
   "minAppVersion": "1.0.0",
-  "description": "A database-style data table for your notes: typed columns (text, url, number, date, checkbox, select, multi-select, status), sorting, filtering, drag-to-reorder, and CSV export.",
+  "description": "A database-style data table for your notes: typed columns (text, url, number, date, checkbox, select, multi-select, status), sorting, filtering, grouping, drag-to-reorder, and CSV export.",
   "author": "maniarasan.s",
   "authorUrl": "https://github.com/Maniarasan-zuper",
   "fundingUrl": "https://www.paypal.com/ncp/payment/TJU2LU6MW9JCQ",

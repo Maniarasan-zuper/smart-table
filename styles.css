@@ -19,6 +19,7 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 6px;
+  flex-wrap: wrap;
 }
 .smart-table-btn {
   display: inline-flex;
@@ -48,6 +49,80 @@
   margin-left: auto;
   font-size: var(--font-ui-smaller);
   color: var(--text-faint);
+}
+
+/* Grouping controls */
+.smart-table-group-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 0 0 8px;
+  padding: 10px;
+  border: 1px solid var(--st-border);
+  border-radius: 8px;
+  background: var(--background-primary);
+}
+.smart-table-group-close,
+.smart-table-group-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--st-border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.smart-table-group-close {
+  width: 26px;
+  height: 26px;
+  justify-content: center;
+}
+.smart-table-group-close:hover,
+.smart-table-group-clear:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+.smart-table-group-select {
+  min-width: 180px;
+  max-width: 100%;
+  padding: 5px 8px;
+  border: 1px solid var(--st-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+.smart-table-group-direction {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--text-accent);
+  border-radius: 6px;
+}
+.smart-table-group-dir {
+  padding: 5px 12px;
+  border: 0;
+  border-right: 1px solid var(--text-accent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-normal);
+  cursor: pointer;
+}
+.smart-table-group-dir:last-child {
+  border-right: 0;
+}
+.smart-table-group-dir.is-active {
+  background: var(--text-accent);
+  color: var(--text-on-accent);
+}
+.smart-table-group-clear {
+  padding: 5px 9px;
+}
+.smart-table-group-close .svg-icon,
+.smart-table-group-clear .svg-icon,
+.smart-table-group-toggle .svg-icon {
+  width: 14px;
+  height: 14px;
 }
 
 /* Live Preview widget: render inside the editor with the interface font
@@ -95,6 +170,37 @@
 }
 .smart-table-grid tbody tr:last-child td {
   border-bottom: none;
+}
+.smart-table-group-row td {
+  border-right: none;
+  background: var(--background-secondary);
+}
+.smart-table-group-cell {
+  padding: 7px 10px !important;
+  color: var(--text-normal);
+  font-weight: 600;
+  cursor: pointer;
+  user-select: none;
+}
+.smart-table-group-toggle {
+  display: inline-flex;
+  margin-right: 6px;
+  vertical-align: -2px;
+  color: var(--text-muted);
+}
+.smart-table-group-label {
+  margin-right: 8px;
+}
+.smart-table-group-count {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: 500;
+  text-align: center;
 }
 .smart-table-grid thead th {
   background: var(--background-secondary);

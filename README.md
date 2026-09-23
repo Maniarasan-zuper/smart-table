@@ -1,9 +1,10 @@
 # Smart Table
 
 A database-style data table inside your notes — typed columns, sorting,
-filtering, drag-to-reorder, and status pills, with easy add/remove of columns
-and rows. The table is stored as a fenced `smart-table` code block (JSON), so
-all your edits are saved right in the note and sync like any other text.
+filtering, grouping, drag-to-reorder, and status pills, with easy add/remove of
+columns and rows. The table is stored as a fenced `smart-table` code block
+(JSON), so all your edits are saved right in the note and sync like any other
+text.
 
 ![Smart Table demo](https://raw.githubusercontent.com/Maniarasan-zuper/smart-table/main/demo.gif)
 
@@ -20,6 +21,10 @@ in Reading view and Live Preview.
 
 - **Sort** — open a column's ▾ menu → Sort ascending / descending.
 - **Filter** — click **Filter** in the toolbar to show a per-column filter row.
+- **Group** — click **Group** to choose any column, then select ascending or
+  descending group order. Groups can be expanded or collapsed independently.
+  Grouping is saved in the table JSON; the existing column sort is applied
+  inside each group. Empty values appear in the **Uncategorized** group.
 - **Add / remove columns** — **+ Column** in the toolbar (pick a type), or a
   column's ▾ menu → Delete column. Rename inline in the header.
 - **Add / remove rows** — **+ Row** in the toolbar or the **+ New row** strip at
@@ -72,7 +77,7 @@ in place, and column types are inferred from the data — numbers become Number,
 ## How data is stored
 
 Everything lives in the code block as a single line of JSON
-(`{ "columns": [...], "rows": [...], "sort": ..., "filters": {} }`). Keeping it
+(`{ "columns": [...], "rows": [...], "sort": ..., "group": ..., "filters": {} }`). Keeping it
 on one line means even a large table stays ~3 lines in the note, so Obsidian
 renders it right away instead of showing the raw source until you scroll.
 
