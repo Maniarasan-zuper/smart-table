@@ -1733,8 +1733,12 @@ function renderTable(app, source, el, persistFn) {
       if (!state.group || state.group.dir === "asc") asc.addClass("is-active");
       else desc.addClass("is-active");
       const applyGroup = (colId, dir) => {
+        const previousCol = state.group && state.group.col;
         state.group = colId ? { col: colId, dir } : null;
-        if (!state.group) collapsedGroups.clear();
+        // Collapse state belongs to the active grouping column. Keep it when
+        // only the direction changes, but never carry keys into another
+        // column (or a cleared grouping configuration).
+        if (!state.group || state.group.col !== previousCol) collapsedGroups.clear();
         commit();
       };
       select.onchange = () => applyGroup(select.value, state.group ? state.group.dir : "asc");
